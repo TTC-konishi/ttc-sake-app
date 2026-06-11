@@ -299,8 +299,7 @@ const SakeApp = () => {
   );
 
   // ===== 管理者画面 =====
-  const VISION_API_KEY = "AIzaSyB6IoQxyqSaZIKRR-riv7J9DZZmDBSJl58";
-
+  // 注意: Vision APIキーはVercelの環境変数 VISION_API_KEY で管理する（コードに直書きしない）
   const AdminScreen = () => {
     const [frontImage, setFrontImage] = useState(null);
     const [backImage, setBackImage] = useState(null);
