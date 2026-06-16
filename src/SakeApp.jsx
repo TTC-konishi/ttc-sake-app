@@ -80,7 +80,7 @@ const RiceField = ({ value, onChange }) => {
 };
 
 const SakeApp = () => {
-  const [currentScreen, setCurrentScreen] = useState('splash');
+  const [currentScreen, setCurrentScreen] = useState('home');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mode, setMode] = useState(null);
   const [sakes, setSakes] = useState([]);
@@ -337,7 +337,32 @@ const SakeApp = () => {
             if (!userName) { setShowNameInput(true); }
             else { setMode('participant'); setCurrentScreen('sakeList'); }
           }}
-        >参加者の方はこちら</button>
+        >🍶 イベント会場へ</button>
+        <button
+          className="mode-btn participant-btn"
+          style={{ marginTop: 12 }}
+          onClick={() => setCurrentScreen('mybook')}
+        >📖 マイ・サケブック</button>
+      </div>
+    </div>
+  );
+
+  // ===== マイ・サケブック（入口のみ・準備中） =====
+  const MyBookScreen = () => (
+    <div className="screen home-screen">
+      <div className="header">
+        <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
+        <h2>マイ・サケブック</h2>
+        <div style={{width:24}} />
+      </div>
+      <div className="mode-selection" style={{ textAlign: 'center' }}>
+        <div className="sake-icon-circle">
+          <TokkuriSVG width={80} height={80} color="#2c3e50" />
+        </div>
+        <h3>準備中です</h3>
+        <p style={{ color: '#888', lineHeight: 1.9, marginTop: 12 }}>
+          自分専用のサケブック（プライベートで飲んだお酒の記録）は<br/>現在準備中です。近日公開予定です。
+        </p>
       </div>
     </div>
   );
@@ -356,6 +381,8 @@ const SakeApp = () => {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [editingSake, setEditingSake] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [savingMsg, setSavingMsg] = useState('登録しています...');
+    const submitGuardRef = useRef(false);
 
     useEffect(() => {
       if (showSakeList) loadAdminSakes();
@@ -476,7 +503,11 @@ const SakeApp = () => {
     const saveSakeEntry = async () => {
       if (!analysisResult.name.trim()) { alert('銘柄名を入力してください'); return; }
       if (!analysisResult.category) { alert('カテゴリーを選択してください'); return; }
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('登録しています...');
       setSaving(true);
+      try {
       const newSake = {
         id: Date.now().toString(),
         name: analysisResult.name.trim(),
@@ -493,7 +524,13 @@ const SakeApp = () => {
       await saveSake(newSake);
       alert('✅ 登録が完了しました！\n\n📝 銘柄: ' + newSake.name + '\n🏷️ カテゴリー: ' + newSake.category + '\n🏭 蔵元: ' + newSake.brewery + (newSake.prefecture ? '\n📍 都道府県: ' + newSake.prefecture : '') + (newSake.sakeRice ? '\n🌾 酒米: ' + newSake.sakeRice : ''));
       setAnalysisResult(null); setFrontImage(null); setBackImage(null);
-      setSaving(false);
+      } catch (e) {
+        console.error('登録エラー:', e);
+        alert('❌ 登録に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const deleteSakeEntry = async (sakeId) => {
@@ -506,11 +543,23 @@ const SakeApp = () => {
 
     const updateSakeEntry = async () => {
       if (!editingSake) return;
-      await saveSake(editingSake);
-      await loadAdminSakes();
-      await loadSakes();
-      setEditingSake(null);
-      alert('✅ 更新しました');
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('更新しています...');
+      setSaving(true);
+      try {
+        await saveSake(editingSake);
+        await loadAdminSakes();
+        await loadSakes();
+        setEditingSake(null);
+        alert('✅ 更新しました');
+      } catch (e) {
+        console.error('更新エラー:', e);
+        alert('❌ 更新に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const categoryOptions = ['純米大吟醸','純米吟醸','特別純米','純米酒','大吟醸','吟醸','特別本醸造','本醸造','普通酒','その他','不明'];
@@ -687,7 +736,7 @@ const SakeApp = () => {
                     <div className="form-group"><label>酒米</label><RiceField value={editingSake.sakeRice} onChange={(val) => setEditingSake({...editingSake, sakeRice: val})} /></div>
                   </div>
                   <div className="modal-buttons">
-                    <button className="modal-btn save-btn" onClick={updateSakeEntry}>更新</button>
+                    <button className="modal-btn save-btn" onClick={updateSakeEntry} disabled={saving}>{saving ? '更新中...' : '更新'}</button>
                     <button className="modal-btn cancel-confirm-btn" onClick={() => setEditingSake(null)}>キャンセル</button>
                   </div>
                 </div>
@@ -706,6 +755,12 @@ const SakeApp = () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {saving && (
+          <div className="submitting-overlay">
+            <div className="spinner"></div>
+            <p>{savingMsg}</p>
           </div>
         )}
         <BottomNav screen="admin" />
@@ -904,8 +959,11 @@ const SakeApp = () => {
       editingReport || { sweetness:3, aroma:3, body:3, acidity:3, finish:2, clarity:'透明', temperature:'冷', score:85, notes:'' }
     );
     const [submitting, setSubmitting] = useState(false);
+    const submitGuardRef = useRef(false);
 
     const submitReport = async () => {
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
       setSubmitting(true);
       try {
         if (editingReportKey) {
@@ -931,6 +989,7 @@ const SakeApp = () => {
         alert('❌ 送信に失敗しました。もう一度お試しください。');
       } finally {
         setSubmitting(false);
+        submitGuardRef.current = false;
       }
     };
 
@@ -1251,6 +1310,7 @@ const SakeApp = () => {
       {!isAuthenticated && <PasswordScreen />}
       {isAuthenticated && currentScreen === 'splash' && <SplashScreen />}
       {isAuthenticated && currentScreen === 'home' && <HomeScreen />}
+      {isAuthenticated && currentScreen === 'mybook' && <MyBookScreen />}
       {isAuthenticated && currentScreen === 'admin' && <AdminScreen />}
       {isAuthenticated && currentScreen === 'sakeList' && <SakeListScreen />}
       {isAuthenticated && currentScreen === 'sakeDetail' && <SakeDetailScreen />}
