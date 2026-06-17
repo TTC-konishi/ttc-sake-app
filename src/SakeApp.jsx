@@ -323,6 +323,7 @@ const SakeApp = () => {
         <h2>SAKE BOOK</h2>
         <Settings size={24} className="settings-icon" onClick={() => setShowNameInput(true)} />
       </div>
+      <p className="home-tagline">推しの一本を、記録する</p>
       {userName && (
         <div className="user-greeting">
           <p>ようこそ、<strong>{userName}</strong>さん</p>
@@ -334,21 +335,22 @@ const SakeApp = () => {
         </div>
         <h3>メニューを選択</h3>
         <button
-          className="mode-btn participant-btn"
+          className="mode-btn btn-gold"
           onClick={() => setCurrentScreen(isAuthenticated ? 'eventEntrance' : 'password')}
         >🍶 イベント会場へ</button>
         <button
-          className="mode-btn participant-btn"
+          className="mode-btn btn-outline-cream"
           style={{ marginTop: 12 }}
           onClick={() => setCurrentScreen('mybook')}
         >📖 マイ・酒メモリへ</button>
+        <a href="https://tokyotc.com/sake/" target="_blank" rel="noopener noreferrer" className="event-link">イベントホームページはこちら →</a>
       </div>
     </div>
   );
 
   // ===== イベント会場 入口（参加者 / 管理者の選択） =====
   const EventEntranceScreen = () => (
-    <div className="screen home-screen">
+    <div className="screen home-screen event-entrance">
       <div className="header">
         <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
         <h2>イベント会場</h2>
@@ -363,15 +365,15 @@ const SakeApp = () => {
         </div>
         <h3>ご利用区分の選択</h3>
         <button
-          className="mode-btn participant-btn"
+          className="mode-btn btn-navy"
           onClick={() => {
             if (!userName) { setShowNameInput(true); }
             else { setMode('participant'); setCurrentScreen('sakeList'); }
           }}
         >参加者はこちら</button>
         <button
-          className="mode-btn participant-btn"
-          style={{ marginTop: 12, background: '#fff', color: '#888', border: '2px solid #ddd' }}
+          className="mode-btn btn-outline-muted"
+          style={{ marginTop: 12 }}
           onClick={handleTokkuriTap}
         >管理者画面へ</button>
       </div>
@@ -1352,7 +1354,7 @@ const SakeApp = () => {
       <style>{`
 *{margin:0;padding:0;box-sizing:border-box}
 .sake-app{font-family:'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif;height:100vh;overflow:hidden}
-.splash-screen{background:#1a4d7a !important;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.splash-screen{background:#16365c !important;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
 .splash-screen::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background-image:radial-gradient(circle at 25% 25%,rgba(255,255,255,0.05) 2%,transparent 2%),radial-gradient(circle at 75% 75%,rgba(255,255,255,0.05) 2%,transparent 2%);background-size:60px 60px;opacity:0.5}
 .splash-content{text-align:center;margin-bottom:60px;position:relative;z-index:1}
 .sake-logo{margin-bottom:40px}
@@ -1374,10 +1376,22 @@ const SakeApp = () => {
 .password-box.shake{animation:shake 0.4s ease-in-out}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 .screen{height:100vh;overflow-y:auto;background:linear-gradient(135deg,#f5f0e8 0%,#fde8d9 100%)}
-        .home-top{background-color:#1a4d7a !important;background-image:radial-gradient(circle at 25% 25%,rgba(255,255,255,0.05) 2%,transparent 2%),radial-gradient(circle at 75% 75%,rgba(255,255,255,0.05) 2%,transparent 2%) !important;background-size:60px 60px}
-        .home-top .header h2{color:#fff}
-        .home-top .settings-icon{color:rgba(255,255,255,0.9)}
-        .home-top .mode-selection h3{color:rgba(255,255,255,0.92)}
+        .home-top{background-color:#16365c !important;background-image:radial-gradient(circle at 25% 25%,rgba(255,255,255,0.05) 2%,transparent 2%),radial-gradient(circle at 75% 75%,rgba(255,255,255,0.05) 2%,transparent 2%) !important;background-size:60px 60px}
+        .home-top .header h2{color:#efe3c8;font-family:Georgia,'Times New Roman',serif;font-weight:400;letter-spacing:4px}
+        .home-top .settings-icon{color:rgba(239,227,200,0.85)}
+        .home-top .mode-selection h3{color:rgba(239,227,200,0.85)}
+        .event-link{display:inline-block;margin-top:28px;color:rgba(239,227,200,0.85);font-size:14px;text-decoration:underline;text-underline-offset:4px;letter-spacing:1px;cursor:pointer}
+        .event-link:hover{color:#fff}
+        .home-top .sake-icon-circle{background:#f3ead6;border:2px solid #c9a96a}
+        .home-tagline{text-align:center;color:rgba(239,227,200,0.6);font-size:13px;letter-spacing:2px;margin:4px 0 0}
+        .btn-gold{background:#c9a96a;color:#3a2c12}
+        .btn-outline-cream{background:transparent !important;color:#efe3c8;border:1.5px solid rgba(239,227,200,0.5) !important;box-shadow:none}
+        .btn-navy{background:#16365c;color:#efe3c8}
+        .btn-outline-muted{background:transparent !important;color:#9a8f7a;border:1.5px solid #cabfa3 !important;box-shadow:none;padding:13px !important;font-size:15px !important}
+        .event-entrance{background:#f3ece0 !important}
+        .event-entrance .header h2{color:#16365c}
+        .event-entrance .mode-selection h3{color:#5a6b7a}
+        .event-entrance .sake-icon-circle{background:#fbf6ec;border:2px solid #c9a96a}
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
 .header svg{cursor:pointer}
