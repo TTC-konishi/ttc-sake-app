@@ -1415,12 +1415,12 @@ const SakeApp = () => {
         .cover-shucho-line{position:absolute;top:28px;right:18px;width:2px;height:102px;background:rgba(201,169,106,0.7)}
         .cover-title{font-family:Georgia,'Times New Roman',serif;font-size:30px;letter-spacing:4px;color:#efe3c8;font-weight:500;line-height:1.12;margin:0}
         .cover-tagline{font-size:12px;letter-spacing:2px;color:rgba(239,227,200,0.55);margin:14px 0 0}
-        .cover-photos{position:absolute;left:24px;right:24px;top:48%;transform:translateY(-54%);height:150px}
+        .cover-photos{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);width:280px;max-width:84%;height:150px}
         .cover-photo{position:absolute;border-radius:50%;border:2px solid rgba(201,169,106,0.75);background-size:cover;background-position:center;box-shadow:0 6px 18px rgba(0,0,0,0.28)}
-        .cover-photo-left{left:4%;top:38px;width:58px;height:58px}
-        .cover-photo-center{left:50%;transform:translateX(-50%);top:0;width:80px;height:80px;border-width:2.5px}
-        .cover-photo-right{right:4%;top:50px;width:54px;height:54px}
-        .cover-dock{position:absolute;left:0;right:0;bottom:0;background:#1b3d5e;border-top:1px solid rgba(239,227,200,0.12);border-radius:24px 24px 0 0;padding:22px 18px 26px}
+        .cover-photo-left{left:0;top:48px;width:90px;height:90px;z-index:1}
+        .cover-photo-center{left:50%;transform:translateX(-50%);top:2px;width:118px;height:118px;border-width:2.5px;z-index:2}
+        .cover-photo-right{right:0;top:56px;width:86px;height:86px;z-index:1}
+        .cover-dock{position:absolute;left:50%;right:auto;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;background:#1b3d5e;border-top:1px solid rgba(239,227,200,0.12);border-radius:24px 24px 0 0;padding:22px 18px 26px}
         .cover-tiles{display:flex;gap:12px}
         .cover-tile{flex:1;border-radius:16px;padding:18px 8px;display:flex;flex-direction:column;align-items:center;cursor:pointer;border:1px solid transparent;font-family:inherit;transition:transform 0.15s}
         .cover-tile:active{transform:scale(0.97)}
