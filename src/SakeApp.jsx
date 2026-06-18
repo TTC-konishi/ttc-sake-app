@@ -1005,7 +1005,7 @@ const SakeApp = () => {
   // ===== テイスティングフォーム =====
   const TastingFormScreen = () => {
     const [formData, setFormData] = useState(
-      editingReport || { sweetness:3, aroma:3, body:3, acidity:3, finish:2, clarity:'透明', temperature:'冷', score:85, notes:'' }
+      editingReport || { sweetness:0, aroma:0, body:0, acidity:0, finish:0, clarity:'透明', temperature:'冷', score:0, notes:'' }
     );
     const [submitting, setSubmitting] = useState(false);
     const submitGuardRef = useRef(false);
@@ -1068,6 +1068,7 @@ const SakeApp = () => {
           <p className="sake-meta">{selectedSake?.category} {selectedSake?.brewery}{selectedSake?.prefecture ? '（' + selectedSake.prefecture + '）' : ''}{selectedSake?.sakeRice ? ' / 🌾' + selectedSake.sakeRice : ''}</p>
           <div className="evaluation-section">
             <h4>味の構成</h4>
+            <p className="section-note">各項目、星をタップして選んでください。</p>
             <StarRating value={formData.sweetness} maxStars={5} onChange={v => setFormData({...formData, sweetness: v})} label="甘辛度" leftLabel="甘" rightLabel="辛" />
             <StarRating value={formData.aroma} maxStars={5} onChange={v => setFormData({...formData, aroma: v})} label="香りの強さ" leftLabel="穏やか" rightLabel="華やか" />
             <StarRating value={formData.body} maxStars={5} onChange={v => setFormData({...formData, body: v})} label="濃淡" leftLabel="淡麗" rightLabel="濃厚" />
@@ -1113,7 +1114,7 @@ const SakeApp = () => {
               />
               <span className="score-unit">点</span>
             </div>
-            <p className="score-note">※銘柄の一般的な評価ではなく、あなた自身の好みにどれだけフィットしたかをお答えください。</p>
+            <p className="score-note">純粋な“あなたの推し度”を点数にしてください（100点満点中）。銘柄の一般的な評価ではなく、あなたの好みへのフィット度でOKです。</p>
           </div>
           <div className="notes-section">
             <h4>テイスティングメモ</h4>
@@ -1299,43 +1300,22 @@ const SakeApp = () => {
               <div className="stat-card"><div className="stat-icon">👥</div><div className="stat-value">{totalParticipants}</div><div className="stat-label">参加者</div></div>
               <div className="stat-card"><div className="stat-icon">⭐</div><div className="stat-value">{overallAvg}</div><div className="stat-label">平均点</div></div>
             </div>
-            <div className="community-tabs">
-              <button className={'community-tab ' + (activeTab === 'ranking' ? 'active' : '')} onClick={() => setActiveTab('ranking')}>🏆 人気ランキング</button>
-              <button className={'community-tab ' + (activeTab === 'participants' ? 'active' : '')} onClick={() => setActiveTab('participants')}>👥 参加者ランキング</button>
+            <h3 className="ranking-heading">🏆 人気ランキング</h3>
+            <div className="ranking-list">
+              {sakeRanking.map((sake, idx) => {
+                const sd = sakes.find(s => s.id === sake.sakeId);
+                const rank = getRank(sakeRanking, idx, 'avg');
+                const realRank = rank - 1;
+                return (
+                  <div key={sake.sakeId} className={'ranking-card' + (realRank < 3 ? ' medal' : '')} style={realRank < 3 ? {borderLeft:'4px solid '+medalColors[realRank]} : {}} onClick={() => { if(sd){ setSelectedSake(sd); setCurrentScreen('sakeDetail'); } }}>
+                    <div className="ranking-pos">{realRank < 3 ? <span style={{fontSize:24}}>{medals[realRank]}</span> : <span className="ranking-num">{rank}</span>}</div>
+                    <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sake.name} /> : <span>🍶</span>}</div>
+                    <div className="ranking-info"><h4>{sake.name}</h4><p>{sake.count}件の評価</p></div>
+                    <div className="ranking-score"><span className="ranking-score-val">{sake.avg.toFixed(1)}</span><span className="ranking-score-unit">点</span></div>
+                  </div>
+                );
+              })}
             </div>
-            {activeTab === 'ranking' && (
-              <div className="ranking-list">
-                {sakeRanking.map((sake, idx) => {
-                  const sd = sakes.find(s => s.id === sake.sakeId);
-                  const rank = getRank(sakeRanking, idx, 'avg');
-                  const realRank = rank - 1;
-                  return (
-                    <div key={sake.sakeId} className={'ranking-card' + (realRank < 3 ? ' medal' : '')} style={realRank < 3 ? {borderLeft:'4px solid '+medalColors[realRank]} : {}} onClick={() => { if(sd){ setSelectedSake(sd); setCurrentScreen('sakeDetail'); } }}>
-                      <div className="ranking-pos">{realRank < 3 ? <span style={{fontSize:24}}>{medals[realRank]}</span> : <span className="ranking-num">{rank}</span>}</div>
-                      <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sake.name} /> : <span>🍶</span>}</div>
-                      <div className="ranking-info"><h4>{sake.name}</h4><p>{sake.count}件の評価</p></div>
-                      <div className="ranking-score"><span className="ranking-score-val">{sake.avg.toFixed(1)}</span><span className="ranking-score-unit">点</span></div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {activeTab === 'participants' && (
-              <div className="ranking-list">
-                {pRanking.map((p, idx) => {
-                  const rank = getRank(pRanking, idx, 'count');
-                  const realRank = rank - 1;
-                  return (
-                    <div key={p.name} className={'ranking-card' + (realRank < 3 ? ' medal' : '')} style={realRank < 3 ? {borderLeft:'4px solid '+medalColors[realRank]} : {}}>
-                      <div className="ranking-pos">{realRank < 3 ? <span style={{fontSize:24}}>{medals[realRank]}</span> : <span className="ranking-num">{rank}</span>}</div>
-                      <div className="participant-avatar">{p.name.charAt(0)}</div>
-                      <div className="ranking-info"><h4>{p.name}</h4><p>{p.count}件の評価 ・ 平均 {p.avg}点</p></div>
-                      <div className="ranking-score"><span className="ranking-score-val">{p.count}</span><span className="ranking-score-unit">件</span></div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         )}
         <BottomNav screen="community" />
@@ -1591,6 +1571,7 @@ const SakeApp = () => {
 .score-input{width:120px;padding:16px;border:2px solid #e0e0e0;border-radius:12px;font-size:32px;font-weight:700;color:#ff9800;text-align:center}
 .score-unit{font-size:20px;font-weight:600;color:#ff9800}
 .score-note{font-size:12px;color:#888;line-height:1.6}
+        .section-note{font-size:13px;color:#888;line-height:1.6;margin:-6px 0 14px}
 .notes-section textarea{width:100%;padding:16px;border:2px solid #e0e0e0;border-radius:12px;font-size:14px;font-family:inherit;resize:vertical;min-height:120px}
 .mypage-screen{background:#fafafa}
 .mypage-content{padding:20px;padding-bottom:80px}
@@ -1627,7 +1608,8 @@ const SakeApp = () => {
 .community-tabs{display:flex;gap:8px;margin-bottom:20px}
 .community-tab{flex:1;padding:12px;border:none;border-radius:12px;background:#f0f0f0;color:#888;font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.2s}
 .community-tab.active{background:linear-gradient(135deg,#1a4d7a 0%,#2d6a9f 100%);color:white;font-weight:600}
-.ranking-list{display:flex;flex-direction:column;gap:12px}
+.ranking-heading{font-size:16px;font-weight:600;color:#444;margin:8px 0 14px}
+        .ranking-list{display:flex;flex-direction:column;gap:12px}
 .ranking-card{background:white;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all 0.2s;border-left:4px solid transparent}
 .ranking-card.medal{box-shadow:0 2px 12px rgba(0,0,0,0.08)}
 .ranking-pos{width:36px;text-align:center;flex-shrink:0}
