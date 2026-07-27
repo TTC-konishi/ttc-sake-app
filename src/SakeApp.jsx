@@ -144,13 +144,14 @@ const SakeApp = () => {
   const [showGuide, setShowGuide] = useState(false);
   const [editingReport, setEditingReport] = useState(null);
   const [editingReportKey, setEditingReportKey] = useState(null);
+  const [loadingOverlayMessage, setLoadingOverlayMessage] = useState('');
+  const [sakesScope, setSakesScope] = useState(null);
 
   // 管理者画面への隠しアクセス（徳利5回タップ）
   const tokkuriTapCount = useRef(0);
   const tokkuriTapTimer = useRef(null);
 
   useEffect(() => {
-    loadSakes();
     loadCurrentEvent();
     loadUserNameLocal();
     // 認証済みかチェック
@@ -161,7 +162,7 @@ const SakeApp = () => {
 
   useEffect(() => {
     if (isAuthenticated && currentScreen === 'sakeList') {
-      loadSakes(activeEventNo);
+      showLoadingDuring('データを読み込み中...', () => loadSakes(activeEventNo));
     }
   }, [isAuthenticated, currentScreen, activeEventNo]);
 
@@ -175,6 +176,15 @@ const SakeApp = () => {
     localStorage.setItem('sakeApp_userName', name);
     setUserName(name);
     setShowNameInput(false);
+  };
+
+  const showLoadingDuring = async (message, task) => {
+    setLoadingOverlayMessage(message);
+    try {
+      return await task();
+    } finally {
+      setLoadingOverlayMessage('');
+    }
   };
 
   const openAuthenticatedScreen = (screen, nextMode = null, eventNo = null) => {
@@ -207,7 +217,9 @@ const SakeApp = () => {
   };
 
   // 銘柄一覧をFirebaseから読み込み
-  const loadSakes = async (eventNo = null) => {
+  const loadSakes = async (eventNo = null, { force = false } = {}) => {
+    const nextScope = eventNo == null ? 'all' : `event:${Number(eventNo)}`;
+    if (!force && sakesScope === nextScope) return;
     try {
       let data = null;
       if (eventNo != null) {
@@ -221,6 +233,7 @@ const SakeApp = () => {
       } else {
         setSakes([]);
       }
+      setSakesScope(nextScope);
     } catch (error) {
       console.error('銘柄読み込みエラー:', error);
     }
@@ -228,7 +241,7 @@ const SakeApp = () => {
 
   const saveSake = async (sake) => {
     await dbSet(`sakes/${sake.id}`, sake);
-    await loadSakes(activeEventNo);
+    await loadSakes(activeEventNo, { force: true });
   };
 
   const saveReport = async (sakeId, report) => {
@@ -273,7 +286,7 @@ const SakeApp = () => {
       tokkuriTapCount.current = 0;
       setActiveEventNo(null);
       setMode('admin');
-      loadSakes();
+      showLoadingDuring('データを読み込み中...', () => loadSakes());
       setCurrentScreen('admin');
     }
   };
@@ -486,7 +499,7 @@ const SakeApp = () => {
       setMode('participant');
       setActiveEventNo(eventNo);
       setFilterEvent(eventNo);
-      await loadSakes(eventNo);
+      await showLoadingDuring('データを読み込み中...', () => loadSakes(eventNo));
       setCurrentScreen('sakeList');
     };
 
@@ -615,8 +628,8 @@ const SakeApp = () => {
     };
 
     useEffect(() => {
-      if (showSakeList) loadAdminSakes();
-      if (showReportsManagement) loadAllReportsForAdmin();
+      if (showSakeList) showLoadingDuring('データを読み込み中...', loadAdminSakes);
+      if (showReportsManagement) showLoadingDuring('データを読み込み中...', loadAllReportsForAdmin);
     }, [showSakeList, showReportsManagement]);
 
     useEffect(() => {
@@ -782,7 +795,7 @@ const SakeApp = () => {
       await dbRemove(`reports/${sakeId}`);
       setDeleteConfirm(null);
       await loadAdminSakes();
-      await loadSakes();
+      await loadSakes(activeEventNo, { force: true });
     };
 
     const updateSakeEntry = async () => {
@@ -794,7 +807,7 @@ const SakeApp = () => {
       try {
         await saveSake(editingSake);
         await loadAdminSakes();
-        await loadSakes();
+        await loadSakes(activeEventNo, { force: true });
         setEditingSake(null);
         alert('✅ 更新しました');
       } catch (e) {
@@ -1189,7 +1202,10 @@ const SakeApp = () => {
     useEffect(() => {
       if (selectedSake?.id) {
         setLoading(true);
-        loadReports(selectedSake.id).then(r => { setReports(r); setLoading(false); });
+        showLoadingDuring('データを読み込み中...', async () => {
+          const r = await loadReports(selectedSake.id);
+          setReports(r);
+        }).finally(() => setLoading(false));
       }
     }, [selectedSake?.id]);
 
@@ -1411,15 +1427,20 @@ const SakeApp = () => {
   const MyPageScreen = () => {
     const [myReports, setMyReports] = useState([]);
     const [deleteConfirmReport, setDeleteConfirmReport] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => { loadMyReports(); }, []);
 
     const loadMyReports = async () => {
-      const allReports = await loadAllReports();
-      const filtered = allReports
-        .filter(r => r && r.userName === userName)
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      setMyReports(filtered);
+      setLoading(true);
+      await showLoadingDuring('データを読み込み中...', async () => {
+        const allReports = await loadAllReports();
+        const filtered = allReports
+          .filter(r => r && r.userName === userName)
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        setMyReports(filtered);
+      });
+      setLoading(false);
     };
 
     const handleEditReport = (report) => {
@@ -1447,7 +1468,7 @@ const SakeApp = () => {
         }
       }
       await loadMyReports();
-      await loadSakes();
+      await loadSakes(activeEventNo, { force: true });
       setDeleteConfirmReport(null);
       alert('✅ 評価を削除しました');
     };
@@ -1464,7 +1485,9 @@ const SakeApp = () => {
           </div>
           <div className="my-reports-section">
             <h4>📝 あなたの評価</h4>
-            {myReports.length === 0 ? (
+            {loading ? (
+              <div className="no-reports"><p>データを読み込み中...</p></div>
+            ) : myReports.length === 0 ? (
               <div className="no-reports"><p>まだ評価を投稿していません</p></div>
             ) : (
               <div className="my-reports-list">
@@ -1512,7 +1535,13 @@ const SakeApp = () => {
       const [filterEventNo, setFilterEventNo] = useState(activeEventNo ?? 'all');
 
     useEffect(() => {
-      (async () => { setLoading(true); setAllReports(await loadAllReports(activeEventNo)); setLoading(false); })();
+      (async () => {
+        setLoading(true);
+        await showLoadingDuring('データを読み込み中...', async () => {
+          setAllReports(await loadAllReports(activeEventNo));
+        });
+        setLoading(false);
+      })();
     }, [activeEventNo, sakes.length]);
 
     const totalReports = allReports.length;
@@ -1617,6 +1646,15 @@ const SakeApp = () => {
     </div>
   );
 
+  const LoadingPopup = ({ message }) => (
+    <div className="loading-popup-overlay">
+      <div className="loading-popup-card">
+        <div className="spinner"></div>
+        <p>{message}</p>
+      </div>
+    </div>
+  );
+
   // ===== レンダリング =====
   return (
     <div className="sake-app">
@@ -1633,12 +1671,13 @@ const SakeApp = () => {
       {isAuthenticated && currentScreen === 'mypage' && <MyPageScreen />}
       {isAuthenticated && currentScreen === 'community' && <CommunityScreen />}
       {showNameInput && <NameInputModal />}
+      {loadingOverlayMessage && <LoadingPopup message={loadingOverlayMessage} />}
       {showGuide && (
         <div className="modal-overlay" onClick={() => setShowGuide(false)}>
           <div className="modal-content guide-modal" onClick={e => e.stopPropagation()}>
             <h3>📖 使い方ガイド</h3>
             <ol className="guide-steps">
-              <li><strong>「参加者はこちら」</strong>から、会場の酒リストへ進みます。</li>
+              <li><strong>「イベントに参加する」</strong>から、会場の酒リストへ進みます。</li>
               <li>飲んだお酒を選び、<strong>星</strong>（甘辛度・香りなど）と<strong>推し度の点数</strong>をつけて送信します。</li>
               <li><strong>「みんなの記録」</strong>で、人気ランキングをみんなで楽しめます。</li>
               <li>一度送信した評価は、画面下の「マイページ」を開き、該当のお酒の「✏️ 編集」ボタンから修正できます（削除も同じ場所からできます）。</li>
@@ -1860,6 +1899,9 @@ const SakeApp = () => {
 .star-btn:hover{transform:scale(1.15)}
 .submitting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2000}
 .submitting-overlay p{color:white;font-size:16px;margin-top:16px}
+.loading-popup-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.38);display:flex;align-items:center;justify-content:center;z-index:2100;backdrop-filter:blur(1px)}
+.loading-popup-card{min-width:220px;background:rgba(255,255,255,0.96);border-radius:16px;padding:28px 30px;box-shadow:0 12px 34px rgba(0,0,0,0.16);display:flex;flex-direction:column;align-items:center}
+.loading-popup-card p{color:#888;font-size:16px;margin-top:16px;letter-spacing:1px}
 .admin-report-card{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
 .admin-report-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
 .admin-report-header h4{font-size:15px;margin:0 0 4px 0}
