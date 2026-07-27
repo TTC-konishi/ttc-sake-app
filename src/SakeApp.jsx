@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Settings, Home, Clipboard, User, ChevronLeft, Search, Trophy, Wine, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, get, remove, child, onValue } from 'firebase/database';
+import { getDatabase, ref, set, get, remove, child, onValue, query, orderByChild, equalTo } from 'firebase/database';
 
 
 
@@ -129,7 +129,10 @@ const RiceField = ({ value, onChange }) => {
 const SakeApp = () => {
   const [currentScreen, setCurrentScreen] = useState('splash');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pendingScreen, setPendingScreen] = useState(null);
   const [mode, setMode] = useState(null);
+  const [activeEventNo, setActiveEventNo] = useState(null);
+  const [currentEvent, setCurrentEvent] = useState(null);
   const [sakes, setSakes] = useState([]);
   const [selectedSake, setSelectedSake] = useState(null);
   const [filterCategory, setFilterCategory] = useState('all');
@@ -148,12 +151,19 @@ const SakeApp = () => {
 
   useEffect(() => {
     loadSakes();
+    loadCurrentEvent();
     loadUserNameLocal();
     // 認証済みかチェック
     if (localStorage.getItem(PASSWORD_STORAGE_KEY) === 'true') {
       setIsAuthenticated(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && currentScreen === 'sakeList') {
+      loadSakes(activeEventNo);
+    }
+  }, [isAuthenticated, currentScreen, activeEventNo]);
 
   // 名前はlocalStorageに保存（端末ごと）
   const loadUserNameLocal = () => {
@@ -167,10 +177,45 @@ const SakeApp = () => {
     setShowNameInput(false);
   };
 
-  // 銘柄一覧をFirebaseから読み込み
-  const loadSakes = async () => {
+  const openAuthenticatedScreen = (screen, nextMode = null, eventNo = null) => {
+    if (nextMode !== null) setMode(nextMode);
+    setActiveEventNo(eventNo);
+    if (nextMode === 'past') setFilterEvent('all');
+    if (eventNo != null) setFilterEvent(Number(eventNo));
+    if (isAuthenticated) {
+      setCurrentScreen(screen);
+    } else {
+      setPendingScreen(screen);
+      setCurrentScreen('password');
+    }
+  };
+
+  const loadCurrentEvent = async () => {
     try {
-      const data = await dbGet('sakes');
+      const data = await dbGet('settings/currentEvent');
+      setCurrentEvent(data || null);
+      return data || null;
+    } catch (error) {
+      console.error('開催中イベント読み込みエラー:', error);
+      return null;
+    }
+  };
+
+  const saveCurrentEvent = async (event) => {
+    await dbSet('settings/currentEvent', event);
+    setCurrentEvent(event);
+  };
+
+  // 銘柄一覧をFirebaseから読み込み
+  const loadSakes = async (eventNo = null) => {
+    try {
+      let data = null;
+      if (eventNo != null) {
+        const snapshot = await get(query(ref(database, 'sakes'), orderByChild('eventNo'), equalTo(Number(eventNo))));
+        data = snapshot.exists() ? snapshot.val() : null;
+      } else {
+        data = await dbGet('sakes');
+      }
       if (data) {
         setSakes(Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
       } else {
@@ -183,7 +228,7 @@ const SakeApp = () => {
 
   const saveSake = async (sake) => {
     await dbSet(`sakes/${sake.id}`, sake);
-    await loadSakes();
+    await loadSakes(activeEventNo);
   };
 
   const saveReport = async (sakeId, report) => {
@@ -197,7 +242,15 @@ const SakeApp = () => {
     return data ? Object.values(data) : [];
   };
 
-  const loadAllReports = async () => {
+  const loadAllReports = async (eventNo = activeEventNo) => {
+    if (eventNo != null) {
+      const targetSakes = sakes.filter(s => s.eventNo === Number(eventNo));
+      const reportsBySake = await Promise.all(targetSakes.map(async (sake) => {
+        const data = await dbGet(`reports/${sake.id}`);
+        return data ? Object.values(data).map(report => ({ ...report, sakeId: sake.id })) : [];
+      }));
+      return reportsBySake.flat();
+    }
     const data = await dbGet('reports');
     if (!data) return [];
     const allReports = [];
@@ -218,7 +271,9 @@ const SakeApp = () => {
     }, 2000);
     if (tokkuriTapCount.current >= 5) {
       tokkuriTapCount.current = 0;
+      setActiveEventNo(null);
       setMode('admin');
+      loadSakes();
       setCurrentScreen('admin');
     }
   };
@@ -293,7 +348,8 @@ const SakeApp = () => {
       if (inputPassword.trim() === SECRET_PASSWORD) {
         localStorage.setItem(PASSWORD_STORAGE_KEY, 'true');
         setIsAuthenticated(true);
-        setCurrentScreen('eventEntrance');
+        setCurrentScreen(pendingScreen || 'joinEvent');
+        setPendingScreen(null);
       } else {
         setErrorMessage('合言葉が違います');
         setIsShaking(true);
@@ -402,12 +458,71 @@ const SakeApp = () => {
         <p className="app-subtitle">MEMORIES IN EVERY DROP</p>
       </div>
       <div className="menu-buttons">
-        <button className="splash-start-btn menu-btn-full" onClick={() => setCurrentScreen(isAuthenticated ? 'eventEntrance' : 'password')}>🍶 イベント会場へ</button>
-        <button className="splash-start-btn menu-btn-full" onClick={() => setCurrentScreen('mybook')}>📖 酒メモリへ</button>
+        <button className="splash-start-btn menu-btn-full menu-btn-primary" onClick={() => openAuthenticatedScreen('joinEvent', 'participant')}>🍶 イベントに参加する<br/><span>Join Event</span></button>
+        <button className="splash-start-btn menu-btn-full" onClick={() => openAuthenticatedScreen('sakeList', 'past')}>📚 過去のイベントを見る<br/><span>Past Events</span></button>
+        <button className="splash-start-btn menu-btn-full" onClick={() => setCurrentScreen('mybook')}>📖 自分だけの酒帳<br/><span>My Sake Book</span></button>
         <a className="menu-site-link" href="https://tokyotc.com/sake/" target="_blank" rel="noopener noreferrer">オフィシャルサイト →</a>
       </div>
     </div>
   );
+
+  // ===== イベント参加入口 =====
+  const JoinEventScreen = () => {
+    const eventIsActive = currentEvent?.active && currentEvent?.eventNo != null;
+    const eventDate = currentEvent?.date ? new Date(currentEvent.date + 'T00:00:00') : null;
+    const dateLabel = eventDate && !Number.isNaN(eventDate.getTime())
+      ? `${eventDate.getFullYear()}年${eventDate.getMonth() + 1}月${eventDate.getDate()}日`
+      : '';
+
+    useEffect(() => { loadCurrentEvent(); }, []);
+
+    const enterCurrentEvent = async () => {
+      if (!eventIsActive) return;
+      if (!userName) {
+        setShowNameInput(true);
+        return;
+      }
+      const eventNo = Number(currentEvent.eventNo);
+      setMode('participant');
+      setActiveEventNo(eventNo);
+      setFilterEvent(eventNo);
+      await loadSakes(eventNo);
+      setCurrentScreen('sakeList');
+    };
+
+    return (
+      <div className="screen home-screen event-entrance">
+        <div className="header">
+          <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
+          <h2>イベントに参加する</h2>
+          <div style={{width:24}} />
+        </div>
+        {userName && (
+          <div className="user-greeting"><p>ようこそ、<strong>{userName}</strong>さん</p></div>
+        )}
+        <div className="mode-selection event-current-panel">
+          <div className="sake-icon-circle">
+            <TokkuriSVG width={80} height={80} color="#2c3e50" />
+          </div>
+          {eventIsActive ? (
+            <>
+              <p className="event-label">開催中イベント</p>
+              <h3>第{currentEvent.eventNo}回</h3>
+              {dateLabel && <p className="event-date">{dateLabel}</p>}
+              <button className="mode-btn btn-navy" onClick={enterCurrentEvent}>このイベントに参加する</button>
+            </>
+          ) : (
+            <>
+              <h3>現在開催中のイベントはありません。</h3>
+              <p className="event-empty-text">次回イベントをお待ちください。</p>
+            </>
+          )}
+          <button className="guide-link-btn" onClick={() => setShowGuide(true)}>📖 使い方ガイド</button>
+          <button className="mode-btn btn-outline-muted" style={{ marginTop: 12 }} onClick={handleTokkuriTap}>管理者画面へ</button>
+        </div>
+      </div>
+    );
+  };
 
   // ===== イベント会場 入口（参加者 / 管理者の選択） =====
   const EventEntranceScreen = () => (
@@ -450,7 +565,7 @@ const SakeApp = () => {
     <div className="screen home-screen">
       <div className="header">
         <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
-        <h2>マイ・酒メモリ</h2>
+        <h2>自分だけの酒帳</h2>
         <div style={{width:24}} />
       </div>
       <div className="mode-selection" style={{ textAlign: 'center' }}>
@@ -459,7 +574,7 @@ const SakeApp = () => {
         </div>
         <h3>準備中です</h3>
         <p style={{ color: '#888', lineHeight: 1.9, marginTop: 12 }}>
-          自分専用の酒メモリ（プライベートで飲んだお酒の記録）は<br/>現在準備中です。近日公開予定です。
+          自分だけの酒帳（プライベートで飲んだお酒の記録）は<br/>現在準備中です。近日公開予定です。
         </p>
       </div>
     </div>
@@ -474,19 +589,47 @@ const SakeApp = () => {
     const [analysisResult, setAnalysisResult] = useState(null);
     const [showSakeList, setShowSakeList] = useState(false);
     const [showReportsManagement, setShowReportsManagement] = useState(false);
+    const [showEventSettings, setShowEventSettings] = useState(false);
     const [allReports, setAllReports] = useState([]);
     const [adminSakes, setAdminSakes] = useState([]);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [editingSake, setEditingSake] = useState(null);
-    const [eventNo, setEventNo] = useState(() => localStorage.getItem('lastEventNo') || '');
+    const [eventNo, setEventNo] = useState(() => currentEvent?.active && currentEvent?.eventNo != null ? String(currentEvent.eventNo) : (localStorage.getItem('lastEventNo') || ''));
+    const [eventSettingNo, setEventSettingNo] = useState('');
+    const [eventSettingDate, setEventSettingDate] = useState('');
     const [saving, setSaving] = useState(false);
     const [savingMsg, setSavingMsg] = useState('登録しています...');
     const submitGuardRef = useRef(false);
+
+    const todayInputValue = () => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const nextEventNo = () => {
+      const eventNos = sakes.map(s => Number(s.eventNo)).filter(n => Number.isFinite(n) && n > 0);
+      return eventNos.length > 0 ? Math.max(...eventNos) + 1 : 1;
+    };
 
     useEffect(() => {
       if (showSakeList) loadAdminSakes();
       if (showReportsManagement) loadAllReportsForAdmin();
     }, [showSakeList, showReportsManagement]);
+
+    useEffect(() => {
+      if (currentEvent?.active && currentEvent?.eventNo != null) {
+        setEventNo(String(currentEvent.eventNo));
+      }
+    }, [currentEvent]);
+
+    useEffect(() => {
+      if (!showEventSettings) return;
+      setEventSettingNo(currentEvent?.eventNo != null ? String(currentEvent.eventNo) : String(nextEventNo()));
+      setEventSettingDate(currentEvent?.date || todayInputValue());
+    }, [showEventSettings, currentEvent]);
 
     const loadAdminSakes = async () => {
       const data = await dbGet('sakes');
@@ -663,6 +806,29 @@ const SakeApp = () => {
       }
     };
 
+    const setActiveEvent = async () => {
+      if (!eventSettingNo) { alert('第○回を入力してください'); return; }
+      if (!eventSettingDate) { alert('日にちを入力してください'); return; }
+      const event = {
+        active: true,
+        eventNo: Number(eventSettingNo),
+        date: eventSettingDate
+      };
+      await saveCurrentEvent(event);
+      setEventNo(String(event.eventNo));
+      localStorage.setItem('lastEventNo', String(event.eventNo));
+      alert(`✅ 開催中イベントを第${event.eventNo}回に設定しました`);
+    };
+
+    const clearActiveEvent = async () => {
+      const event = {
+        ...(currentEvent || {}),
+        active: false
+      };
+      await saveCurrentEvent(event);
+      alert('開催中イベントを未設定にしました');
+    };
+
     const categoryOptions = ['純米大吟醸','純米吟醸','特別純米','純米酒','大吟醸','吟醸','特別本醸造','本醸造','普通酒','その他','不明'];
 
     return (
@@ -672,10 +838,41 @@ const SakeApp = () => {
           <h2>【管理者】銘柄登録</h2>
           <div style={{width:24}} />
         </div>
-        {!showSakeList && !showReportsManagement ? (
+        {showEventSettings ? (
+          <div className="admin-content">
+            <div className="admin-list-header">
+              <h3>開催中イベントを設定</h3>
+              <button className="back-to-scan-btn" onClick={() => setShowEventSettings(false)}>登録へ戻る</button>
+            </div>
+            <div className="event-settings-card">
+              <div className="form-group">
+                <label>第○回</label>
+                <input type="number" inputMode="numeric" min="1" value={eventSettingNo} onChange={(e) => setEventSettingNo(e.target.value.replace(/[^0-9]/g, ''))} placeholder="例：6" />
+              </div>
+              <div className="form-group">
+                <label>日にち</label>
+                <input type="date" value={eventSettingDate} onChange={(e) => setEventSettingDate(e.target.value)} />
+              </div>
+              {currentEvent?.active && currentEvent?.eventNo != null ? (
+                <p className="current-event-note">現在: 第{currentEvent.eventNo}回{currentEvent.date ? ` / ${currentEvent.date}` : ''}</p>
+              ) : (
+                <p className="current-event-note">現在開催中のイベントは未設定です。</p>
+              )}
+              <button className="save-btn" onClick={setActiveEvent}>設定する</button>
+              <button className="cancel-btn" onClick={clearActiveEvent} style={{marginTop:12}}>未設定にする</button>
+            </div>
+          </div>
+        ) : !showSakeList && !showReportsManagement ? (
           <div className="admin-content">
             {!analysisResult ? (
               <div>
+                {currentEvent?.active && currentEvent?.eventNo != null && (
+                  <div className="current-event-banner">
+                    <span>開催中</span>
+                    <strong>第{currentEvent.eventNo}回</strong>
+                    {currentEvent.date && <small>{currentEvent.date}</small>}
+                  </div>
+                )}
                 <div className="scan-instruction">
                   <h3>日本酒のラベルを撮影</h3>
                   <p>ラベルから銘柄情報を自動読み取りします</p>
@@ -700,6 +897,7 @@ const SakeApp = () => {
                   {analyzing ? '読み取り中...' : '📸 ラベルを読み取る'}
                 </button>
                 {analyzing && <div className="progress-indicator"><div className="spinner"></div><p>ラベルを解析中...</p></div>}
+                <button className="manage-btn" onClick={() => setShowEventSettings(true)}>📅 開催中イベントを設定</button>
                 <button className="manage-btn" onClick={() => setShowSakeList(true)}>📋 登録済み銘柄を管理</button>
                 <button className="manage-btn" onClick={() => setShowReportsManagement(true)} style={{marginTop:'12px'}}>📝 全評価を管理</button>
               </div>
@@ -917,7 +1115,7 @@ const SakeApp = () => {
       <div className="screen sake-list-screen">
         <div className="header">
           <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
-          <h2>銘柄を選択</h2>
+          <h2>{mode === 'participant' && activeEventNo != null ? `第${activeEventNo}回の銘柄` : '過去のイベントを見る'}</h2>
           <Search size={24} style={{opacity:0}} />
         </div>
         <div className="category-tabs">
@@ -941,7 +1139,7 @@ const SakeApp = () => {
             ))}
           </div>
         )}
-        {presentEvents.length > 0 && (
+        {mode !== 'participant' && presentEvents.length > 0 && (
           <div className="category-tabs">
             <button className={'category-tab ' + (filterEvent === 'all' ? 'active' : '')} onClick={() => setFilterEvent('all')}>回：すべて</button>
             {presentEvents.map(n => (
@@ -1311,11 +1509,11 @@ const SakeApp = () => {
     const [allReports, setAllReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('ranking');
-    const [filterEventNo, setFilterEventNo] = useState('all');
+      const [filterEventNo, setFilterEventNo] = useState(activeEventNo ?? 'all');
 
     useEffect(() => {
-      (async () => { setLoading(true); setAllReports(await loadAllReports()); setLoading(false); })();
-    }, []);
+      (async () => { setLoading(true); setAllReports(await loadAllReports(activeEventNo)); setLoading(false); })();
+    }, [activeEventNo, sakes.length]);
 
     const totalReports = allReports.length;
     const totalParticipants = [...new Set(allReports.map(r => r.userName))].length;
@@ -1379,7 +1577,7 @@ const SakeApp = () => {
               <div className="stat-card"><div className="stat-icon">⭐</div><div className="stat-value">{overallAvg}</div><div className="stat-label">平均点</div></div>
             </div>
             <h3 className="ranking-heading">🏆 人気ランキング</h3>
-            {presentEventsC.length > 0 && (
+            {mode !== 'participant' && presentEventsC.length > 0 && (
               <div className="category-tabs">
                 <button className={'category-tab ' + (filterEventNo === 'all' ? 'active' : '')} onClick={() => setFilterEventNo('all')}>回：すべて</button>
                 {presentEventsC.map(n => (
@@ -1426,6 +1624,7 @@ const SakeApp = () => {
       {currentScreen === 'splash' && <SplashScreen />}
       {currentScreen === 'home' && <HomeScreen />}
       {currentScreen === 'mybook' && <MyBookScreen />}
+      {isAuthenticated && currentScreen === 'joinEvent' && <JoinEventScreen />}
       {isAuthenticated && currentScreen === 'eventEntrance' && <EventEntranceScreen />}
       {isAuthenticated && currentScreen === 'admin' && <AdminScreen />}
       {isAuthenticated && currentScreen === 'sakeList' && <SakeListScreen />}
@@ -1475,6 +1674,8 @@ const SakeApp = () => {
 .splash-start-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.3)}
         .menu-buttons{display:flex;flex-direction:column;gap:14px;align-items:center;width:100%;max-width:340px;padding:0 24px;position:relative;z-index:1}
         .menu-btn-full{width:100%;padding:16px}
+        .menu-btn-full span{display:block;font-size:12px;font-weight:500;letter-spacing:1.5px;margin-top:4px;opacity:0.78}
+        .menu-btn-primary{background:#f5f0e8;color:#16365c}
         .menu-site-link{margin-top:6px;color:rgba(255,255,255,0.85);font-size:14px;text-decoration:underline;text-underline-offset:3px;letter-spacing:1px}
         .menu-settings{position:absolute;top:16px;left:16px;color:rgba(255,255,255,0.7);z-index:5;cursor:pointer}
 .password-box{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:16px;padding:0 32px;width:100%;max-width:360px}
@@ -1502,6 +1703,10 @@ const SakeApp = () => {
         .event-entrance .header h2{color:#16365c}
         .event-entrance .mode-selection h3{color:#5a6b7a}
         .event-entrance .sake-icon-circle{background:#fbf6ec;border:2px solid #c9a96a}
+        .event-current-panel h3{margin-bottom:10px;text-align:center;line-height:1.5}
+        .event-label{font-size:12px;color:#8a7450;letter-spacing:2px;margin-bottom:10px}
+        .event-date{font-size:15px;color:#666;margin-bottom:24px}
+        .event-empty-text{font-size:15px;color:#888;line-height:1.8;margin-bottom:20px;text-align:center}
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
 .header svg{cursor:pointer}
@@ -1536,6 +1741,13 @@ const SakeApp = () => {
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .progress-indicator p{color:#1976d2;font-size:14px}
 .manage-btn{width:100%;padding:14px;background:white;color:#666;border:2px solid #e0e0e0;border-radius:50px;font-size:14px;font-weight:600;cursor:pointer}
+.manage-btn + .manage-btn{margin-top:12px}
+.current-event-banner{display:flex;align-items:center;gap:10px;background:#fff7e8;border:1px solid #e4c782;border-radius:12px;padding:12px 14px;margin-bottom:18px;color:#5a4a24}
+.current-event-banner span{font-size:12px;background:#c9a96a;color:white;border-radius:999px;padding:3px 8px}
+.current-event-banner strong{font-size:17px}
+.current-event-banner small{color:#806f52}
+.event-settings-card{background:white;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,0.06)}
+.current-event-note{font-size:13px;color:#777;background:#f8f8f8;border-radius:8px;padding:10px 12px;margin-bottom:18px}
 .confirmation-section{padding:20px 0}
 .confirmation-section h3{font-size:18px;color:#2e7d32;margin-bottom:8px;text-align:center}
 .confirmation-note{text-align:center;color:#666;font-size:13px;margin-bottom:24px}
