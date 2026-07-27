@@ -286,7 +286,6 @@ const SakeApp = () => {
       tokkuriTapCount.current = 0;
       setActiveEventNo(null);
       setMode('admin');
-      showLoadingDuring('データを読み込み中...', () => loadSakes());
       setCurrentScreen('admin');
     }
   };
@@ -622,11 +621,6 @@ const SakeApp = () => {
       return `${y}-${m}-${day}`;
     };
 
-    const nextEventNo = () => {
-      const eventNos = sakes.map(s => Number(s.eventNo)).filter(n => Number.isFinite(n) && n > 0);
-      return eventNos.length > 0 ? Math.max(...eventNos) + 1 : 1;
-    };
-
     useEffect(() => {
       if (showSakeList) showLoadingDuring('データを読み込み中...', loadAdminSakes);
       if (showReportsManagement) showLoadingDuring('データを読み込み中...', loadAllReportsForAdmin);
@@ -640,7 +634,7 @@ const SakeApp = () => {
 
     useEffect(() => {
       if (!showEventSettings) return;
-      setEventSettingNo(currentEvent?.eventNo != null ? String(currentEvent.eventNo) : String(nextEventNo()));
+      setEventSettingNo(currentEvent?.eventNo != null ? String(currentEvent.eventNo) : '');
       setEventSettingDate(currentEvent?.date || todayInputValue());
     }, [showEventSettings, currentEvent]);
 
@@ -822,24 +816,48 @@ const SakeApp = () => {
     const setActiveEvent = async () => {
       if (!eventSettingNo) { alert('第○回を入力してください'); return; }
       if (!eventSettingDate) { alert('日にちを入力してください'); return; }
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('設定しています...');
+      setSaving(true);
       const event = {
         active: true,
         eventNo: Number(eventSettingNo),
         date: eventSettingDate
       };
-      await saveCurrentEvent(event);
-      setEventNo(String(event.eventNo));
-      localStorage.setItem('lastEventNo', String(event.eventNo));
-      alert(`✅ 開催中イベントを第${event.eventNo}回に設定しました`);
+      try {
+        await saveCurrentEvent(event);
+        setEventNo(String(event.eventNo));
+        localStorage.setItem('lastEventNo', String(event.eventNo));
+        alert(`✅ 開催中イベントを第${event.eventNo}回に設定しました`);
+      } catch (e) {
+        console.error('開催中イベント設定エラー:', e);
+        alert('❌ 設定に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const clearActiveEvent = async () => {
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('未設定にしています...');
+      setSaving(true);
       const event = {
         ...(currentEvent || {}),
         active: false
       };
-      await saveCurrentEvent(event);
-      alert('開催中イベントを未設定にしました');
+      try {
+        await saveCurrentEvent(event);
+        alert('開催中イベントを未設定にしました');
+      } catch (e) {
+        console.error('開催中イベント未設定化エラー:', e);
+        alert('❌ 未設定への変更に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const categoryOptions = ['純米大吟醸','純米吟醸','特別純米','純米酒','大吟醸','吟醸','特別本醸造','本醸造','普通酒','その他','不明'];
@@ -871,8 +889,8 @@ const SakeApp = () => {
               ) : (
                 <p className="current-event-note">現在開催中のイベントは未設定です。</p>
               )}
-              <button className="save-btn" onClick={setActiveEvent}>設定する</button>
-              <button className="cancel-btn" onClick={clearActiveEvent} style={{marginTop:12}}>未設定にする</button>
+              <button className="save-btn" onClick={setActiveEvent} disabled={saving}>{saving ? '設定中...' : '設定する'}</button>
+              <button className="cancel-btn" onClick={clearActiveEvent} disabled={saving} style={{marginTop:12}}>{saving ? '処理中...' : '未設定にする'}</button>
             </div>
           </div>
         ) : !showSakeList && !showReportsManagement ? (
