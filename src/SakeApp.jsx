@@ -145,7 +145,10 @@ const SakeApp = () => {
   const [editingReport, setEditingReport] = useState(null);
   const [editingReportKey, setEditingReportKey] = useState(null);
   const [loadingOverlayMessage, setLoadingOverlayMessage] = useState('');
-  const [sakesScope, setSakesScope] = useState(null);
+  const sakesCacheRef = useRef(new Map());
+  const sakesRequestRef = useRef(new Map());
+  const reportsCacheRef = useRef(new Map());
+  const reportsRequestRef = useRef(new Map());
 
   // 管理者画面への隠しアクセス（徳利5回タップ）
   const tokkuriTapCount = useRef(0);
@@ -165,6 +168,34 @@ const SakeApp = () => {
       showLoadingDuring('データを読み込み中...', () => loadSakes(activeEventNo));
     }
   }, [isAuthenticated, currentScreen, activeEventNo]);
+
+  // ホームやイベント入口を見ている間に、次の画面で使うデータを静かに先読みする
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (currentScreen !== 'home' && currentScreen !== 'joinEvent') return;
+
+    const startPreload = () => {
+      const activeEventPreload = currentEvent?.active && currentEvent?.eventNo != null
+        ? loadSakesData(Number(currentEvent.eventNo))
+            .then(eventSakes => loadAllReports(Number(currentEvent.eventNo), { targetSakes: eventSakes }))
+        : Promise.resolve();
+
+      activeEventPreload
+        .then(async () => {
+          if (currentScreen !== 'home') return;
+          const allSakes = await loadSakesData();
+          await loadAllReports(null, { targetSakes: allSakes });
+        })
+        .catch(error => console.error('イベントデータ先読みエラー:', error));
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(startPreload, { timeout: 1000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timerId = window.setTimeout(startPreload, 200);
+    return () => window.clearTimeout(timerId);
+  }, [isAuthenticated, currentScreen, currentEvent?.active, currentEvent?.eventNo]);
 
   // 名前はlocalStorageに保存（端末ごと）
   const loadUserNameLocal = () => {
@@ -216,11 +247,16 @@ const SakeApp = () => {
     setCurrentEvent(event);
   };
 
-  // 銘柄一覧をFirebaseから読み込み
-  const loadSakes = async (eventNo = null, { force = false } = {}) => {
+  const loadSakesData = async (eventNo = null, { force = false } = {}) => {
     const nextScope = eventNo == null ? 'all' : `event:${Number(eventNo)}`;
-    if (!force && sakesScope === nextScope) return;
-    try {
+    if (!force && sakesCacheRef.current.has(nextScope)) {
+      return sakesCacheRef.current.get(nextScope);
+    }
+    if (!force && sakesRequestRef.current.has(nextScope)) {
+      return sakesRequestRef.current.get(nextScope);
+    }
+
+    const request = (async () => {
       let data = null;
       if (eventNo != null) {
         const snapshot = await get(query(ref(database, 'sakes'), orderByChild('eventNo'), equalTo(Number(eventNo))));
@@ -228,25 +264,44 @@ const SakeApp = () => {
       } else {
         data = await dbGet('sakes');
       }
-      if (data) {
-        setSakes(Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-      } else {
-        setSakes([]);
-      }
-      setSakesScope(nextScope);
+      const loadedSakes = data
+        ? Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        : [];
+      sakesCacheRef.current.set(nextScope, loadedSakes);
+      return loadedSakes;
+    })();
+
+    sakesRequestRef.current.set(nextScope, request);
+    try {
+      return await request;
+    } finally {
+      sakesRequestRef.current.delete(nextScope);
+    }
+  };
+
+  // 銘柄一覧をFirebaseから読み込み
+  const loadSakes = async (eventNo = null, options = {}) => {
+    try {
+      const loadedSakes = await loadSakesData(eventNo, options);
+      setSakes(loadedSakes);
+      return loadedSakes;
     } catch (error) {
       console.error('銘柄読み込みエラー:', error);
+      return [];
     }
   };
 
   const saveSake = async (sake) => {
     await dbSet(`sakes/${sake.id}`, sake);
+    sakesCacheRef.current.clear();
+    reportsCacheRef.current.clear();
     await loadSakes(activeEventNo, { force: true });
   };
 
   const saveReport = async (sakeId, report) => {
     const key = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     await dbSet(`reports/${sakeId}/${key}`, { ...report, key });
+    reportsCacheRef.current.clear();
     return key;
   };
 
@@ -255,24 +310,44 @@ const SakeApp = () => {
     return data ? Object.values(data) : [];
   };
 
-  const loadAllReports = async (eventNo = activeEventNo) => {
-    if (eventNo != null) {
-      const targetSakes = sakes.filter(s => s.eventNo === Number(eventNo));
-      const reportsBySake = await Promise.all(targetSakes.map(async (sake) => {
-        const data = await dbGet(`reports/${sake.id}`);
-        return data ? Object.values(data).map(report => ({ ...report, sakeId: sake.id })) : [];
-      }));
-      return reportsBySake.flat();
+  const loadAllReports = async (eventNo = activeEventNo, { force = false, targetSakes = null } = {}) => {
+    const cacheKey = eventNo == null ? 'all' : `event:${Number(eventNo)}`;
+    if (!force && reportsCacheRef.current.has(cacheKey)) {
+      return reportsCacheRef.current.get(cacheKey);
     }
-    const data = await dbGet('reports');
-    if (!data) return [];
-    const allReports = [];
-    Object.values(data).forEach(sakeReports => {
-      Object.values(sakeReports).forEach(report => {
-        allReports.push(report);
-      });
-    });
-    return allReports;
+    if (!force && reportsRequestRef.current.has(cacheKey)) {
+      return reportsRequestRef.current.get(cacheKey);
+    }
+
+    const request = (async () => {
+      let loadedReports = [];
+      if (eventNo != null) {
+        const eventSakes = targetSakes || await loadSakesData(eventNo);
+        const reportsBySake = await Promise.all(eventSakes.map(async (sake) => {
+          const data = await dbGet(`reports/${sake.id}`);
+          return data ? Object.values(data).map(report => ({ ...report, sakeId: sake.id })) : [];
+        }));
+        loadedReports = reportsBySake.flat();
+      } else {
+        const data = await dbGet('reports');
+        if (data) {
+          Object.entries(data).forEach(([sakeId, sakeReports]) => {
+            Object.values(sakeReports).forEach(report => {
+              loadedReports.push({ ...report, sakeId: report.sakeId || sakeId });
+            });
+          });
+        }
+      }
+      reportsCacheRef.current.set(cacheKey, loadedReports);
+      return loadedReports;
+    })();
+
+    reportsRequestRef.current.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      reportsRequestRef.current.delete(cacheKey);
+    }
   };
 
   // 徳利タップカウント
@@ -657,6 +732,7 @@ const SakeApp = () => {
 
     const deleteReportAsAdmin = async (sakeId, reportKey) => {
       await dbRemove(`reports/${sakeId}/${reportKey}`);
+      reportsCacheRef.current.clear();
       const sake = sakes.find(s => s.id === sakeId);
       if (sake) {
         const remaining = await loadReports(sakeId);
@@ -787,6 +863,8 @@ const SakeApp = () => {
     const deleteSakeEntry = async (sakeId) => {
       await dbRemove(`sakes/${sakeId}`);
       await dbRemove(`reports/${sakeId}`);
+      sakesCacheRef.current.clear();
+      reportsCacheRef.current.clear();
       setDeleteConfirm(null);
       await loadAdminSakes();
       await loadSakes(activeEventNo, { force: true });
@@ -1323,6 +1401,7 @@ const SakeApp = () => {
       try {
         if (editingReportKey) {
           await dbRemove(`reports/${selectedSake.id}/${editingReportKey}`);
+          reportsCacheRef.current.clear();
         }
         const report = {
           ...formData,
@@ -1475,6 +1554,7 @@ const SakeApp = () => {
 
     const handleDeleteReport = async (report) => {
       await dbRemove(`reports/${report.sakeId}/${report.key}`);
+      reportsCacheRef.current.clear();
       const sake = sakes.find(s => s.id === report.sakeId);
       if (sake) {
         const remaining = await loadReports(report.sakeId);
