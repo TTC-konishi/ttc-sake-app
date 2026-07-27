@@ -144,13 +144,17 @@ const SakeApp = () => {
   const [showGuide, setShowGuide] = useState(false);
   const [editingReport, setEditingReport] = useState(null);
   const [editingReportKey, setEditingReportKey] = useState(null);
+  const [loadingOverlayMessage, setLoadingOverlayMessage] = useState('');
+  const sakesCacheRef = useRef(new Map());
+  const sakesRequestRef = useRef(new Map());
+  const reportsCacheRef = useRef(new Map());
+  const reportsRequestRef = useRef(new Map());
 
   // 管理者画面への隠しアクセス（徳利5回タップ）
   const tokkuriTapCount = useRef(0);
   const tokkuriTapTimer = useRef(null);
 
   useEffect(() => {
-    loadSakes();
     loadCurrentEvent();
     loadUserNameLocal();
     // 認証済みかチェック
@@ -161,9 +165,37 @@ const SakeApp = () => {
 
   useEffect(() => {
     if (isAuthenticated && currentScreen === 'sakeList') {
-      loadSakes(activeEventNo);
+      showLoadingDuring('データを読み込み中...', () => loadSakes(activeEventNo));
     }
   }, [isAuthenticated, currentScreen, activeEventNo]);
+
+  // ホームやイベント入口を見ている間に、次の画面で使うデータを静かに先読みする
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (currentScreen !== 'home' && currentScreen !== 'joinEvent') return;
+
+    const startPreload = () => {
+      const activeEventPreload = currentEvent?.active && currentEvent?.eventNo != null
+        ? loadSakesData(Number(currentEvent.eventNo))
+            .then(eventSakes => loadAllReports(Number(currentEvent.eventNo), { targetSakes: eventSakes }))
+        : Promise.resolve();
+
+      activeEventPreload
+        .then(async () => {
+          if (currentScreen !== 'home') return;
+          const allSakes = await loadSakesData();
+          await loadAllReports(null, { targetSakes: allSakes });
+        })
+        .catch(error => console.error('イベントデータ先読みエラー:', error));
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(startPreload, { timeout: 1000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timerId = window.setTimeout(startPreload, 200);
+    return () => window.clearTimeout(timerId);
+  }, [isAuthenticated, currentScreen, currentEvent?.active, currentEvent?.eventNo]);
 
   // 名前はlocalStorageに保存（端末ごと）
   const loadUserNameLocal = () => {
@@ -175,6 +207,15 @@ const SakeApp = () => {
     localStorage.setItem('sakeApp_userName', name);
     setUserName(name);
     setShowNameInput(false);
+  };
+
+  const showLoadingDuring = async (message, task) => {
+    setLoadingOverlayMessage(message);
+    try {
+      return await task();
+    } finally {
+      setLoadingOverlayMessage('');
+    }
   };
 
   const openAuthenticatedScreen = (screen, nextMode = null, eventNo = null) => {
@@ -206,9 +247,16 @@ const SakeApp = () => {
     setCurrentEvent(event);
   };
 
-  // 銘柄一覧をFirebaseから読み込み
-  const loadSakes = async (eventNo = null) => {
-    try {
+  const loadSakesData = async (eventNo = null, { force = false } = {}) => {
+    const nextScope = eventNo == null ? 'all' : `event:${Number(eventNo)}`;
+    if (!force && sakesCacheRef.current.has(nextScope)) {
+      return sakesCacheRef.current.get(nextScope);
+    }
+    if (!force && sakesRequestRef.current.has(nextScope)) {
+      return sakesRequestRef.current.get(nextScope);
+    }
+
+    const request = (async () => {
       let data = null;
       if (eventNo != null) {
         const snapshot = await get(query(ref(database, 'sakes'), orderByChild('eventNo'), equalTo(Number(eventNo))));
@@ -216,24 +264,44 @@ const SakeApp = () => {
       } else {
         data = await dbGet('sakes');
       }
-      if (data) {
-        setSakes(Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-      } else {
-        setSakes([]);
-      }
+      const loadedSakes = data
+        ? Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        : [];
+      sakesCacheRef.current.set(nextScope, loadedSakes);
+      return loadedSakes;
+    })();
+
+    sakesRequestRef.current.set(nextScope, request);
+    try {
+      return await request;
+    } finally {
+      sakesRequestRef.current.delete(nextScope);
+    }
+  };
+
+  // 銘柄一覧をFirebaseから読み込み
+  const loadSakes = async (eventNo = null, options = {}) => {
+    try {
+      const loadedSakes = await loadSakesData(eventNo, options);
+      setSakes(loadedSakes);
+      return loadedSakes;
     } catch (error) {
       console.error('銘柄読み込みエラー:', error);
+      return [];
     }
   };
 
   const saveSake = async (sake) => {
     await dbSet(`sakes/${sake.id}`, sake);
-    await loadSakes(activeEventNo);
+    sakesCacheRef.current.clear();
+    reportsCacheRef.current.clear();
+    await loadSakes(activeEventNo, { force: true });
   };
 
   const saveReport = async (sakeId, report) => {
     const key = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     await dbSet(`reports/${sakeId}/${key}`, { ...report, key });
+    reportsCacheRef.current.clear();
     return key;
   };
 
@@ -242,24 +310,44 @@ const SakeApp = () => {
     return data ? Object.values(data) : [];
   };
 
-  const loadAllReports = async (eventNo = activeEventNo) => {
-    if (eventNo != null) {
-      const targetSakes = sakes.filter(s => s.eventNo === Number(eventNo));
-      const reportsBySake = await Promise.all(targetSakes.map(async (sake) => {
-        const data = await dbGet(`reports/${sake.id}`);
-        return data ? Object.values(data).map(report => ({ ...report, sakeId: sake.id })) : [];
-      }));
-      return reportsBySake.flat();
+  const loadAllReports = async (eventNo = activeEventNo, { force = false, targetSakes = null } = {}) => {
+    const cacheKey = eventNo == null ? 'all' : `event:${Number(eventNo)}`;
+    if (!force && reportsCacheRef.current.has(cacheKey)) {
+      return reportsCacheRef.current.get(cacheKey);
     }
-    const data = await dbGet('reports');
-    if (!data) return [];
-    const allReports = [];
-    Object.values(data).forEach(sakeReports => {
-      Object.values(sakeReports).forEach(report => {
-        allReports.push(report);
-      });
-    });
-    return allReports;
+    if (!force && reportsRequestRef.current.has(cacheKey)) {
+      return reportsRequestRef.current.get(cacheKey);
+    }
+
+    const request = (async () => {
+      let loadedReports = [];
+      if (eventNo != null) {
+        const eventSakes = targetSakes || await loadSakesData(eventNo);
+        const reportsBySake = await Promise.all(eventSakes.map(async (sake) => {
+          const data = await dbGet(`reports/${sake.id}`);
+          return data ? Object.values(data).map(report => ({ ...report, sakeId: sake.id })) : [];
+        }));
+        loadedReports = reportsBySake.flat();
+      } else {
+        const data = await dbGet('reports');
+        if (data) {
+          Object.entries(data).forEach(([sakeId, sakeReports]) => {
+            Object.values(sakeReports).forEach(report => {
+              loadedReports.push({ ...report, sakeId: report.sakeId || sakeId });
+            });
+          });
+        }
+      }
+      reportsCacheRef.current.set(cacheKey, loadedReports);
+      return loadedReports;
+    })();
+
+    reportsRequestRef.current.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      reportsRequestRef.current.delete(cacheKey);
+    }
   };
 
   // 徳利タップカウント
@@ -273,7 +361,6 @@ const SakeApp = () => {
       tokkuriTapCount.current = 0;
       setActiveEventNo(null);
       setMode('admin');
-      loadSakes();
       setCurrentScreen('admin');
     }
   };
@@ -486,7 +573,7 @@ const SakeApp = () => {
       setMode('participant');
       setActiveEventNo(eventNo);
       setFilterEvent(eventNo);
-      await loadSakes(eventNo);
+      await showLoadingDuring('データを読み込み中...', () => loadSakes(eventNo));
       setCurrentScreen('sakeList');
     };
 
@@ -609,14 +696,9 @@ const SakeApp = () => {
       return `${y}-${m}-${day}`;
     };
 
-    const nextEventNo = () => {
-      const eventNos = sakes.map(s => Number(s.eventNo)).filter(n => Number.isFinite(n) && n > 0);
-      return eventNos.length > 0 ? Math.max(...eventNos) + 1 : 1;
-    };
-
     useEffect(() => {
-      if (showSakeList) loadAdminSakes();
-      if (showReportsManagement) loadAllReportsForAdmin();
+      if (showSakeList) showLoadingDuring('データを読み込み中...', loadAdminSakes);
+      if (showReportsManagement) showLoadingDuring('データを読み込み中...', loadAllReportsForAdmin);
     }, [showSakeList, showReportsManagement]);
 
     useEffect(() => {
@@ -627,7 +709,7 @@ const SakeApp = () => {
 
     useEffect(() => {
       if (!showEventSettings) return;
-      setEventSettingNo(currentEvent?.eventNo != null ? String(currentEvent.eventNo) : String(nextEventNo()));
+      setEventSettingNo(currentEvent?.eventNo != null ? String(currentEvent.eventNo) : '');
       setEventSettingDate(currentEvent?.date || todayInputValue());
     }, [showEventSettings, currentEvent]);
 
@@ -650,6 +732,7 @@ const SakeApp = () => {
 
     const deleteReportAsAdmin = async (sakeId, reportKey) => {
       await dbRemove(`reports/${sakeId}/${reportKey}`);
+      reportsCacheRef.current.clear();
       const sake = sakes.find(s => s.id === sakeId);
       if (sake) {
         const remaining = await loadReports(sakeId);
@@ -780,9 +863,11 @@ const SakeApp = () => {
     const deleteSakeEntry = async (sakeId) => {
       await dbRemove(`sakes/${sakeId}`);
       await dbRemove(`reports/${sakeId}`);
+      sakesCacheRef.current.clear();
+      reportsCacheRef.current.clear();
       setDeleteConfirm(null);
       await loadAdminSakes();
-      await loadSakes();
+      await loadSakes(activeEventNo, { force: true });
     };
 
     const updateSakeEntry = async () => {
@@ -794,7 +879,7 @@ const SakeApp = () => {
       try {
         await saveSake(editingSake);
         await loadAdminSakes();
-        await loadSakes();
+        await loadSakes(activeEventNo, { force: true });
         setEditingSake(null);
         alert('✅ 更新しました');
       } catch (e) {
@@ -809,24 +894,48 @@ const SakeApp = () => {
     const setActiveEvent = async () => {
       if (!eventSettingNo) { alert('第○回を入力してください'); return; }
       if (!eventSettingDate) { alert('日にちを入力してください'); return; }
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('設定しています...');
+      setSaving(true);
       const event = {
         active: true,
         eventNo: Number(eventSettingNo),
         date: eventSettingDate
       };
-      await saveCurrentEvent(event);
-      setEventNo(String(event.eventNo));
-      localStorage.setItem('lastEventNo', String(event.eventNo));
-      alert(`✅ 開催中イベントを第${event.eventNo}回に設定しました`);
+      try {
+        await saveCurrentEvent(event);
+        setEventNo(String(event.eventNo));
+        localStorage.setItem('lastEventNo', String(event.eventNo));
+        alert(`✅ 開催中イベントを第${event.eventNo}回に設定しました`);
+      } catch (e) {
+        console.error('開催中イベント設定エラー:', e);
+        alert('❌ 設定に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const clearActiveEvent = async () => {
+      if (submitGuardRef.current) return;
+      submitGuardRef.current = true;
+      setSavingMsg('未設定にしています...');
+      setSaving(true);
       const event = {
         ...(currentEvent || {}),
         active: false
       };
-      await saveCurrentEvent(event);
-      alert('開催中イベントを未設定にしました');
+      try {
+        await saveCurrentEvent(event);
+        alert('開催中イベントを未設定にしました');
+      } catch (e) {
+        console.error('開催中イベント未設定化エラー:', e);
+        alert('❌ 未設定への変更に失敗しました。もう一度お試しください。');
+      } finally {
+        setSaving(false);
+        submitGuardRef.current = false;
+      }
     };
 
     const categoryOptions = ['純米大吟醸','純米吟醸','特別純米','純米酒','大吟醸','吟醸','特別本醸造','本醸造','普通酒','その他','不明'];
@@ -858,8 +967,8 @@ const SakeApp = () => {
               ) : (
                 <p className="current-event-note">現在開催中のイベントは未設定です。</p>
               )}
-              <button className="save-btn" onClick={setActiveEvent}>設定する</button>
-              <button className="cancel-btn" onClick={clearActiveEvent} style={{marginTop:12}}>未設定にする</button>
+              <button className="save-btn" onClick={setActiveEvent} disabled={saving}>{saving ? '設定中...' : '設定する'}</button>
+              <button className="cancel-btn" onClick={clearActiveEvent} disabled={saving} style={{marginTop:12}}>{saving ? '処理中...' : '未設定にする'}</button>
             </div>
           </div>
         ) : !showSakeList && !showReportsManagement ? (
@@ -1189,7 +1298,10 @@ const SakeApp = () => {
     useEffect(() => {
       if (selectedSake?.id) {
         setLoading(true);
-        loadReports(selectedSake.id).then(r => { setReports(r); setLoading(false); });
+        showLoadingDuring('データを読み込み中...', async () => {
+          const r = await loadReports(selectedSake.id);
+          setReports(r);
+        }).finally(() => setLoading(false));
       }
     }, [selectedSake?.id]);
 
@@ -1289,6 +1401,7 @@ const SakeApp = () => {
       try {
         if (editingReportKey) {
           await dbRemove(`reports/${selectedSake.id}/${editingReportKey}`);
+          reportsCacheRef.current.clear();
         }
         const report = {
           ...formData,
@@ -1411,15 +1524,20 @@ const SakeApp = () => {
   const MyPageScreen = () => {
     const [myReports, setMyReports] = useState([]);
     const [deleteConfirmReport, setDeleteConfirmReport] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => { loadMyReports(); }, []);
 
     const loadMyReports = async () => {
-      const allReports = await loadAllReports();
-      const filtered = allReports
-        .filter(r => r && r.userName === userName)
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      setMyReports(filtered);
+      setLoading(true);
+      await showLoadingDuring('データを読み込み中...', async () => {
+        const allReports = await loadAllReports();
+        const filtered = allReports
+          .filter(r => r && r.userName === userName)
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        setMyReports(filtered);
+      });
+      setLoading(false);
     };
 
     const handleEditReport = (report) => {
@@ -1436,6 +1554,7 @@ const SakeApp = () => {
 
     const handleDeleteReport = async (report) => {
       await dbRemove(`reports/${report.sakeId}/${report.key}`);
+      reportsCacheRef.current.clear();
       const sake = sakes.find(s => s.id === report.sakeId);
       if (sake) {
         const remaining = await loadReports(report.sakeId);
@@ -1447,7 +1566,7 @@ const SakeApp = () => {
         }
       }
       await loadMyReports();
-      await loadSakes();
+      await loadSakes(activeEventNo, { force: true });
       setDeleteConfirmReport(null);
       alert('✅ 評価を削除しました');
     };
@@ -1464,7 +1583,9 @@ const SakeApp = () => {
           </div>
           <div className="my-reports-section">
             <h4>📝 あなたの評価</h4>
-            {myReports.length === 0 ? (
+            {loading ? (
+              <div className="no-reports"><p>データを読み込み中...</p></div>
+            ) : myReports.length === 0 ? (
               <div className="no-reports"><p>まだ評価を投稿していません</p></div>
             ) : (
               <div className="my-reports-list">
@@ -1512,7 +1633,13 @@ const SakeApp = () => {
       const [filterEventNo, setFilterEventNo] = useState(activeEventNo ?? 'all');
 
     useEffect(() => {
-      (async () => { setLoading(true); setAllReports(await loadAllReports(activeEventNo)); setLoading(false); })();
+      (async () => {
+        setLoading(true);
+        await showLoadingDuring('データを読み込み中...', async () => {
+          setAllReports(await loadAllReports(activeEventNo));
+        });
+        setLoading(false);
+      })();
     }, [activeEventNo, sakes.length]);
 
     const totalReports = allReports.length;
@@ -1617,6 +1744,15 @@ const SakeApp = () => {
     </div>
   );
 
+  const LoadingPopup = ({ message }) => (
+    <div className="loading-popup-overlay">
+      <div className="loading-popup-card">
+        <div className="spinner"></div>
+        <p>{message}</p>
+      </div>
+    </div>
+  );
+
   // ===== レンダリング =====
   return (
     <div className="sake-app">
@@ -1633,12 +1769,13 @@ const SakeApp = () => {
       {isAuthenticated && currentScreen === 'mypage' && <MyPageScreen />}
       {isAuthenticated && currentScreen === 'community' && <CommunityScreen />}
       {showNameInput && <NameInputModal />}
+      {loadingOverlayMessage && <LoadingPopup message={loadingOverlayMessage} />}
       {showGuide && (
         <div className="modal-overlay" onClick={() => setShowGuide(false)}>
           <div className="modal-content guide-modal" onClick={e => e.stopPropagation()}>
             <h3>📖 使い方ガイド</h3>
             <ol className="guide-steps">
-              <li><strong>「参加者はこちら」</strong>から、会場の酒リストへ進みます。</li>
+              <li><strong>「イベントに参加する」</strong>から、会場の酒リストへ進みます。</li>
               <li>飲んだお酒を選び、<strong>星</strong>（甘辛度・香りなど）と<strong>推し度の点数</strong>をつけて送信します。</li>
               <li><strong>「みんなの記録」</strong>で、人気ランキングをみんなで楽しめます。</li>
               <li>一度送信した評価は、画面下の「マイページ」を開き、該当のお酒の「✏️ 編集」ボタンから修正できます（削除も同じ場所からできます）。</li>
@@ -1860,6 +1997,9 @@ const SakeApp = () => {
 .star-btn:hover{transform:scale(1.15)}
 .submitting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2000}
 .submitting-overlay p{color:white;font-size:16px;margin-top:16px}
+.loading-popup-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.38);display:flex;align-items:center;justify-content:center;z-index:2100;backdrop-filter:blur(1px)}
+.loading-popup-card{min-width:220px;background:rgba(255,255,255,0.96);border-radius:16px;padding:28px 30px;box-shadow:0 12px 34px rgba(0,0,0,0.16);display:flex;flex-direction:column;align-items:center}
+.loading-popup-card p{color:#888;font-size:16px;margin-top:16px;letter-spacing:1px}
 .admin-report-card{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
 .admin-report-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
 .admin-report-header h4{font-size:15px;margin:0 0 4px 0}
