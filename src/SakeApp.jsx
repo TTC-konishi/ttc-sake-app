@@ -133,6 +133,7 @@ const SakeApp = () => {
   const [mode, setMode] = useState(null);
   const [activeEventNo, setActiveEventNo] = useState(null);
   const [currentEvent, setCurrentEvent] = useState(null);
+  const [currentEventLoading, setCurrentEventLoading] = useState(true);
   const [sakes, setSakes] = useState([]);
   const [selectedSake, setSelectedSake] = useState(null);
   const [filterCategory, setFilterCategory] = useState('all');
@@ -225,6 +226,7 @@ const SakeApp = () => {
   };
 
   const loadCurrentEvent = async () => {
+    setCurrentEventLoading(true);
     try {
       const data = await dbGet('settings/currentEvent');
       setCurrentEvent(data || null);
@@ -232,6 +234,8 @@ const SakeApp = () => {
     } catch (error) {
       console.error('開催中イベント読み込みエラー:', error);
       return null;
+    } finally {
+      setCurrentEventLoading(false);
     }
   };
 
@@ -554,8 +558,6 @@ const SakeApp = () => {
       ? `${eventDate.getFullYear()}年${eventDate.getMonth() + 1}月${eventDate.getDate()}日`
       : '';
 
-    useEffect(() => { loadCurrentEvent(); }, []);
-
     const enterCurrentEvent = async () => {
       if (!eventIsActive) return;
       if (!userName) {
@@ -573,9 +575,11 @@ const SakeApp = () => {
     return (
       <div className="screen home-screen event-entrance">
         <div className="header">
-          <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
+          <button type="button" className="header-back-btn" aria-label="ホームへ戻る" onClick={() => setCurrentScreen('home')}>
+            <ChevronLeft size={28} />
+          </button>
           <h2>イベントに参加する</h2>
-          <div style={{width:24}} />
+          <div className="header-back-spacer" />
         </div>
         {userName && (
           <div className="user-greeting"><p>ようこそ、<strong>{userName}</strong>さん</p></div>
@@ -584,7 +588,12 @@ const SakeApp = () => {
           <div className="sake-icon-circle">
             <TokkuriSVG width={80} height={80} color="#2c3e50" />
           </div>
-          {eventIsActive ? (
+          {currentEventLoading ? (
+            <div className="event-checking">
+              <div className="spinner"></div>
+              <h3>開催中イベントを確認しています…</h3>
+            </div>
+          ) : eventIsActive ? (
             <>
               <p className="event-label">開催中イベント</p>
               <h3>第{currentEvent.eventNo}回</h3>
@@ -1863,6 +1872,11 @@ const SakeApp = () => {
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
 .header svg{cursor:pointer}
+.header-back-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.header-back-btn:active{background:rgba(44,62,80,0.08)}
+.header-back-spacer{width:44px;height:44px;flex-shrink:0}
+.event-checking{min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.event-checking h3{font-size:16px;font-weight:500}
 .settings-icon{color:#8a8a8a;cursor:pointer}
 .user-greeting{text-align:center;padding:10px 20px;background:rgba(255,255,255,0.9);margin:0 20px 20px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .user-greeting p{font-size:16px;color:#555}
