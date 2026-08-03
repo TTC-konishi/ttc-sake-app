@@ -169,23 +169,16 @@ const SakeApp = () => {
     }
   }, [isAuthenticated, currentScreen, activeEventNo]);
 
-  // ホームやイベント入口を見ている間に、次の画面で使うデータを静かに先読みする
+  // 開催中イベントの入口を見ている間に、当日分だけを静かに先読みする
   useEffect(() => {
     if (!isAuthenticated) return;
     if (currentScreen !== 'home' && currentScreen !== 'joinEvent') return;
+    if (!currentEvent?.active || currentEvent?.eventNo == null) return;
 
     const startPreload = () => {
-      const activeEventPreload = currentEvent?.active && currentEvent?.eventNo != null
-        ? loadSakesData(Number(currentEvent.eventNo))
-            .then(eventSakes => loadAllReports(Number(currentEvent.eventNo), { targetSakes: eventSakes }))
-        : Promise.resolve();
-
-      activeEventPreload
-        .then(async () => {
-          if (currentScreen !== 'home') return;
-          const allSakes = await loadSakesData();
-          await loadAllReports(null, { targetSakes: allSakes });
-        })
+      const eventNo = Number(currentEvent.eventNo);
+      loadSakesData(eventNo)
+        .then(eventSakes => loadAllReports(eventNo, { targetSakes: eventSakes }))
         .catch(error => console.error('イベントデータ先読みエラー:', error));
     };
 
@@ -686,6 +679,7 @@ const SakeApp = () => {
     const [eventSettingDate, setEventSettingDate] = useState('');
     const [saving, setSaving] = useState(false);
     const [savingMsg, setSavingMsg] = useState('登録しています...');
+    const [loadingAdminData, setLoadingAdminData] = useState(false);
     const submitGuardRef = useRef(false);
 
     const todayInputValue = () => {
@@ -697,8 +691,14 @@ const SakeApp = () => {
     };
 
     useEffect(() => {
-      if (showSakeList) showLoadingDuring('データを読み込み中...', loadAdminSakes);
-      if (showReportsManagement) showLoadingDuring('データを読み込み中...', loadAllReportsForAdmin);
+      if (!showSakeList && !showReportsManagement) return;
+      let cancelled = false;
+      setLoadingAdminData(true);
+      const task = showSakeList ? loadAdminSakes() : loadAllReportsForAdmin();
+      task
+        .catch(error => console.error('管理データ読み込みエラー:', error))
+        .finally(() => { if (!cancelled) setLoadingAdminData(false); });
+      return () => { cancelled = true; };
     }, [showSakeList, showReportsManagement]);
 
     useEffect(() => {
@@ -1182,6 +1182,12 @@ const SakeApp = () => {
             <p>{savingMsg}</p>
           </div>
         )}
+        {loadingAdminData && (
+          <div className="submitting-overlay">
+            <div className="spinner"></div>
+            <p>データを読み込み中...</p>
+          </div>
+        )}
         <BottomNav screen="admin" />
       </div>
     );
@@ -1296,13 +1302,14 @@ const SakeApp = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-      if (selectedSake?.id) {
-        setLoading(true);
-        showLoadingDuring('データを読み込み中...', async () => {
-          const r = await loadReports(selectedSake.id);
-          setReports(r);
-        }).finally(() => setLoading(false));
-      }
+      if (!selectedSake?.id) return;
+      let cancelled = false;
+      setLoading(true);
+      loadReports(selectedSake.id)
+        .then(r => { if (!cancelled) setReports(r); })
+        .catch(error => console.error('評価読み込みエラー:', error))
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
     }, [selectedSake?.id]);
 
     const getFinishLabel = (v) => v === 1 ? '短い' : v === 2 ? '中程度' : '長い';
@@ -1530,14 +1537,17 @@ const SakeApp = () => {
 
     const loadMyReports = async () => {
       setLoading(true);
-      await showLoadingDuring('データを読み込み中...', async () => {
+      try {
         const allReports = await loadAllReports();
         const filtered = allReports
           .filter(r => r && r.userName === userName)
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         setMyReports(filtered);
-      });
-      setLoading(false);
+      } catch (error) {
+        console.error('マイページ読み込みエラー:', error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     const handleEditReport = (report) => {
@@ -1633,13 +1643,19 @@ const SakeApp = () => {
       const [filterEventNo, setFilterEventNo] = useState(activeEventNo ?? 'all');
 
     useEffect(() => {
+      let cancelled = false;
       (async () => {
         setLoading(true);
-        await showLoadingDuring('データを読み込み中...', async () => {
-          setAllReports(await loadAllReports(activeEventNo));
-        });
-        setLoading(false);
+        try {
+          const reports = await loadAllReports(activeEventNo);
+          if (!cancelled) setAllReports(reports);
+        } catch (error) {
+          console.error('みんなの記録読み込みエラー:', error);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
       })();
+      return () => { cancelled = true; };
     }, [activeEventNo, sakes.length]);
 
     const totalReports = allReports.length;
