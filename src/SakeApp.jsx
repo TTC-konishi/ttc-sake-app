@@ -1247,9 +1247,9 @@ const SakeApp = () => {
           <h2>{mode === 'participant' && activeEventNo != null ? `第${activeEventNo}回の銘柄` : '過去のイベントを見る'}</h2>
           <button
             type="button"
-            className="header-icon-btn"
-            aria-label="最新データに更新"
-            title="最新データに更新"
+            className="header-refresh-btn"
+            aria-label="最新データを取り込む"
+            title="最新データを取り込む"
             onClick={async () => {
               await showLoadingDuring('最新データを取得中...', async () => {
                 const refreshedSakes = await loadSakes(activeEventNo, { force: true });
@@ -1257,7 +1257,8 @@ const SakeApp = () => {
               });
             }}
           >
-            <RotateCw size={20} />
+            <RotateCw size={13} />
+            <span>最新データを取り込む</span>
           </button>
         </div>
         <div className="category-tabs">
@@ -1734,9 +1735,9 @@ const SakeApp = () => {
           <h2>みんなの記録</h2>
           <button
             type="button"
-            className="header-icon-btn"
-            aria-label="最新データに更新"
-            title="最新データに更新"
+            className="header-refresh-btn"
+            aria-label="最新データを取り込む"
+            title="最新データを取り込む"
             onClick={async () => {
               setLoading(true);
               try {
@@ -1750,7 +1751,8 @@ const SakeApp = () => {
               }
             }}
           >
-            <RotateCw size={20} />
+            <RotateCw size={13} />
+            <span>最新データを取り込む</span>
           </button>
         </div>
         {loading ? (
@@ -1913,9 +1915,8 @@ const SakeApp = () => {
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
 .header-back-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.header-back-btn:active{background:rgba(44,62,80,0.08)}
-.header-icon-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.header-icon-btn:active{background:rgba(44,62,80,0.08)}
+.header-refresh-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;background:#f5efe4;border:1px solid #dcd4c5;border-radius:20px;color:#4a4a4a;font-size:11px;font-weight:500;cursor:pointer;flex-shrink:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent;box-shadow:0 1px 2px rgba(0,0,0,0.05);white-space:nowrap}
+.header-refresh-btn:active{background:#e8dfd0}
 .header-back-spacer{width:44px;height:44px;flex-shrink:0}
 .event-checking{min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
 .event-checking h3{font-size:16px;font-weight:500}
