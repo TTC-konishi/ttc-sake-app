@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Settings, Home, Clipboard, User, ChevronLeft, Search, Trophy, Wine, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
+import { Camera, Settings, Home, Clipboard, User, ChevronLeft, Search, Trophy, Wine, BookOpen, ExternalLink, ArrowRight, RotateCw } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get, remove, child, onValue, query, orderByChild, equalTo } from 'firebase/database';
 
@@ -568,7 +568,10 @@ const SakeApp = () => {
       setMode('participant');
       setActiveEventNo(eventNo);
       setFilterEvent(eventNo);
-      await showLoadingDuring('データを読み込み中...', () => loadSakes(eventNo));
+      await showLoadingDuring('データを読み込み中...', async () => {
+        const loadedSakes = await loadSakes(eventNo, { force: true });
+        await loadAllReports(eventNo, { force: true, targetSakes: loadedSakes });
+      });
       setCurrentScreen('sakeList');
     };
 
@@ -1238,9 +1241,24 @@ const SakeApp = () => {
     return (
       <div className="screen sake-list-screen">
         <div className="header">
-          <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
+          <button type="button" className="header-back-btn" aria-label="ホームへ戻る" onClick={() => setCurrentScreen('home')}>
+            <ChevronLeft size={28} />
+          </button>
           <h2>{mode === 'participant' && activeEventNo != null ? `第${activeEventNo}回の銘柄` : '過去のイベントを見る'}</h2>
-          <Search size={24} style={{opacity:0}} />
+          <button
+            type="button"
+            className="header-icon-btn"
+            aria-label="最新データに更新"
+            title="最新データに更新"
+            onClick={async () => {
+              await showLoadingDuring('最新データを取得中...', async () => {
+                const refreshedSakes = await loadSakes(activeEventNo, { force: true });
+                await loadAllReports(activeEventNo, { force: true, targetSakes: refreshedSakes });
+              });
+            }}
+          >
+            <RotateCw size={20} />
+          </button>
         </div>
         <div className="category-tabs">
           {categories.map(cat => (
@@ -1711,7 +1729,30 @@ const SakeApp = () => {
 
     return (
       <div className="screen community-screen">
-        <div className="header"><h2>みんなの記録</h2></div>
+        <div className="header">
+          <div className="header-back-spacer" />
+          <h2>みんなの記録</h2>
+          <button
+            type="button"
+            className="header-icon-btn"
+            aria-label="最新データに更新"
+            title="最新データに更新"
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const refreshedSakes = await loadSakes(activeEventNo, { force: true });
+                const reports = await loadAllReports(activeEventNo, { force: true, targetSakes: refreshedSakes });
+                setAllReports(reports);
+              } catch (error) {
+                console.error('みんなの記録更新エラー:', error);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <RotateCw size={20} />
+          </button>
+        </div>
         {loading ? (
           <div className="community-loading"><div className="spinner"></div><p>データを読み込み中...</p></div>
         ) : totalReports === 0 ? (
@@ -1871,9 +1912,10 @@ const SakeApp = () => {
         .event-empty-text{font-size:15px;color:#888;line-height:1.8;margin-bottom:20px;text-align:center}
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
-.header svg{cursor:pointer}
 .header-back-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .header-back-btn:active{background:rgba(44,62,80,0.08)}
+.header-icon-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.header-icon-btn:active{background:rgba(44,62,80,0.08)}
 .header-back-spacer{width:44px;height:44px;flex-shrink:0}
 .event-checking{min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
 .event-checking h3{font-size:16px;font-weight:500}
