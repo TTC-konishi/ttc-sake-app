@@ -1097,19 +1097,21 @@ const SakeApp = () => {
             <div className="admin-sake-list">
               {allReports.length === 0 ? (
                 <div className="empty-list"><p>まだ評価が投稿されていません</p></div>
-              ) : allReports.map((report, idx) => (
+              ) : allReports.map((report, idx) => {
+                const currentSakeName = adminSakes.find(s => s.id === report.sakeId)?.name || report.sakeName;
+                return (
                 <div key={idx} className="admin-report-card">
                   <div className="admin-report-header">
                     <div>
-                      <h4>{report.sakeName}</h4>
+                      <h4>{currentSakeName}</h4>
                       <p className="admin-report-meta">{report.userName} - {new Date(report.timestamp).toLocaleString('ja-JP')}</p>
                     </div>
                     <div className="admin-report-score">{report.score}点</div>
                   </div>
                   {report.notes && <p className="admin-report-notes">{report.notes}</p>}
-                  <button className="delete-btn-small" onClick={() => setDeleteConfirm({type: 'report', sakeId: report.sakeId, key: report.key, name: `${report.sakeName}の評価（${report.userName}）`})}>🗑️ 削除</button>
+                  <button className="delete-btn-small" onClick={() => setDeleteConfirm({type: 'report', sakeId: report.sakeId, key: report.key, name: `${currentSakeName}の評価（${report.userName}）`})}>🗑️ 削除</button>
                 </div>
-              ))}
+              );})}
             </div>
             {deleteConfirm && deleteConfirm.type === 'report' && (
               <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
@@ -1627,10 +1629,12 @@ const SakeApp = () => {
               <div className="no-reports"><p>まだ評価を投稿していません</p></div>
             ) : (
               <div className="my-reports-list">
-                {myReports.map((report, i) => (
+                {myReports.map((report, i) => {
+                  const currentSakeName = sakes.find(s => s.id === report.sakeId)?.name || report.sakeName;
+                  return (
                   <div key={i} className="my-report-card">
                     <div className="my-report-header">
-                      <h4>{report.sakeName}</h4>
+                      <h4>{currentSakeName}</h4>
                       <span className="my-report-score">{report.score}点</span>
                     </div>
                     <p className="my-report-date">{new Date(report.timestamp).toLocaleDateString('ja-JP', {year:'numeric',month:'long',day:'numeric'})}</p>
@@ -1640,7 +1644,7 @@ const SakeApp = () => {
                       <button className="delete-report-btn" onClick={() => setDeleteConfirmReport(report)}>🗑️ 削除</button>
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
           </div>
@@ -1692,7 +1696,9 @@ const SakeApp = () => {
 
     const sakeMap = {};
     allReports.forEach(r => {
-      if (!sakeMap[r.sakeId]) sakeMap[r.sakeId] = { name: r.sakeName, scores: [], sakeId: r.sakeId };
+      const sd = sakes.find(s => s.id === r.sakeId);
+      const sakeName = sd?.name || r.sakeName || '名称未設定';
+      if (!sakeMap[r.sakeId]) sakeMap[r.sakeId] = { name: sakeName, scores: [], sakeId: r.sakeId };
       sakeMap[r.sakeId].scores.push(r.score || 0);
     });
     const sakeRanking = Object.values(sakeMap)
@@ -1788,8 +1794,8 @@ const SakeApp = () => {
                 return (
                   <div key={sake.sakeId} className={'ranking-card' + (realRank < 3 ? ' medal' : '')} style={realRank < 3 ? {borderLeft:'4px solid '+medalColors[realRank]} : {}} onClick={() => { if(sd){ setSelectedSake(sd); setCurrentScreen('sakeDetail'); } }}>
                     <div className="ranking-pos">{realRank < 3 ? <span style={{fontSize:24}}>{medals[realRank]}</span> : <span className="ranking-num">{rank}</span>}</div>
-                    <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sake.name} /> : <span>🍶</span>}</div>
-                    <div className="ranking-info"><h4>{sake.name}</h4><p>{sake.count}件の評価</p></div>
+                    <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sd?.name || sake.name} /> : <span>🍶</span>}</div>
+                    <div className="ranking-info"><h4>{sd?.name || sake.name}</h4><p>{sake.count}件の評価</p></div>
                     <div className="ranking-score"><span className="ranking-score-val">{sake.avg.toFixed(1)}</span><span className="ranking-score-unit">点</span></div>
                   </div>
                 );
