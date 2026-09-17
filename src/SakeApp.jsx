@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Settings, Home, Clipboard, User, ChevronLeft, Search, Trophy, Wine, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
+import { Camera, Settings, Home, Clipboard, User, ChevronLeft, Search, Trophy, Wine, BookOpen, ExternalLink, ArrowRight, RotateCw } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get, remove, child, onValue, query, orderByChild, equalTo } from 'firebase/database';
 
@@ -568,7 +568,10 @@ const SakeApp = () => {
       setMode('participant');
       setActiveEventNo(eventNo);
       setFilterEvent(eventNo);
-      await showLoadingDuring('データを読み込み中...', () => loadSakes(eventNo));
+      await showLoadingDuring('データを読み込み中...', async () => {
+        const loadedSakes = await loadSakes(eventNo, { force: true });
+        await loadAllReports(eventNo, { force: true, targetSakes: loadedSakes });
+      });
       setCurrentScreen('sakeList');
     };
 
@@ -1094,19 +1097,21 @@ const SakeApp = () => {
             <div className="admin-sake-list">
               {allReports.length === 0 ? (
                 <div className="empty-list"><p>まだ評価が投稿されていません</p></div>
-              ) : allReports.map((report, idx) => (
+              ) : allReports.map((report, idx) => {
+                const currentSakeName = adminSakes.find(s => s.id === report.sakeId)?.name || report.sakeName;
+                return (
                 <div key={idx} className="admin-report-card">
                   <div className="admin-report-header">
                     <div>
-                      <h4>{report.sakeName}</h4>
+                      <h4>{currentSakeName}</h4>
                       <p className="admin-report-meta">{report.userName} - {new Date(report.timestamp).toLocaleString('ja-JP')}</p>
                     </div>
                     <div className="admin-report-score">{report.score}点</div>
                   </div>
                   {report.notes && <p className="admin-report-notes">{report.notes}</p>}
-                  <button className="delete-btn-small" onClick={() => setDeleteConfirm({type: 'report', sakeId: report.sakeId, key: report.key, name: `${report.sakeName}の評価（${report.userName}）`})}>🗑️ 削除</button>
+                  <button className="delete-btn-small" onClick={() => setDeleteConfirm({type: 'report', sakeId: report.sakeId, key: report.key, name: `${currentSakeName}の評価（${report.userName}）`})}>🗑️ 削除</button>
                 </div>
-              ))}
+              );})}
             </div>
             {deleteConfirm && deleteConfirm.type === 'report' && (
               <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
@@ -1238,9 +1243,25 @@ const SakeApp = () => {
     return (
       <div className="screen sake-list-screen">
         <div className="header">
-          <ChevronLeft size={24} onClick={() => setCurrentScreen('home')} />
+          <button type="button" className="header-back-btn" aria-label="ホームへ戻る" onClick={() => setCurrentScreen('home')}>
+            <ChevronLeft size={28} />
+          </button>
           <h2>{mode === 'participant' && activeEventNo != null ? `第${activeEventNo}回の銘柄` : '過去のイベントを見る'}</h2>
-          <Search size={24} style={{opacity:0}} />
+          <button
+            type="button"
+            className="header-refresh-btn"
+            aria-label="最新データを取り込む"
+            title="最新データを取り込む"
+            onClick={async () => {
+              await showLoadingDuring('最新データを取得中...', async () => {
+                const refreshedSakes = await loadSakes(activeEventNo, { force: true });
+                await loadAllReports(activeEventNo, { force: true, targetSakes: refreshedSakes });
+              });
+            }}
+          >
+            <RotateCw size={13} />
+            <span>最新データを取り込む</span>
+          </button>
         </div>
         <div className="category-tabs">
           {categories.map(cat => (
@@ -1608,10 +1629,12 @@ const SakeApp = () => {
               <div className="no-reports"><p>まだ評価を投稿していません</p></div>
             ) : (
               <div className="my-reports-list">
-                {myReports.map((report, i) => (
+                {myReports.map((report, i) => {
+                  const currentSakeName = sakes.find(s => s.id === report.sakeId)?.name || report.sakeName;
+                  return (
                   <div key={i} className="my-report-card">
                     <div className="my-report-header">
-                      <h4>{report.sakeName}</h4>
+                      <h4>{currentSakeName}</h4>
                       <span className="my-report-score">{report.score}点</span>
                     </div>
                     <p className="my-report-date">{new Date(report.timestamp).toLocaleDateString('ja-JP', {year:'numeric',month:'long',day:'numeric'})}</p>
@@ -1621,7 +1644,7 @@ const SakeApp = () => {
                       <button className="delete-report-btn" onClick={() => setDeleteConfirmReport(report)}>🗑️ 削除</button>
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
           </div>
@@ -1673,7 +1696,9 @@ const SakeApp = () => {
 
     const sakeMap = {};
     allReports.forEach(r => {
-      if (!sakeMap[r.sakeId]) sakeMap[r.sakeId] = { name: r.sakeName, scores: [], sakeId: r.sakeId };
+      const sd = sakes.find(s => s.id === r.sakeId);
+      const sakeName = sd?.name || r.sakeName || '名称未設定';
+      if (!sakeMap[r.sakeId]) sakeMap[r.sakeId] = { name: sakeName, scores: [], sakeId: r.sakeId };
       sakeMap[r.sakeId].scores.push(r.score || 0);
     });
     const sakeRanking = Object.values(sakeMap)
@@ -1711,7 +1736,31 @@ const SakeApp = () => {
 
     return (
       <div className="screen community-screen">
-        <div className="header"><h2>みんなの記録</h2></div>
+        <div className="header">
+          <div className="header-back-spacer" />
+          <h2>みんなの記録</h2>
+          <button
+            type="button"
+            className="header-refresh-btn"
+            aria-label="最新データを取り込む"
+            title="最新データを取り込む"
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const refreshedSakes = await loadSakes(activeEventNo, { force: true });
+                const reports = await loadAllReports(activeEventNo, { force: true, targetSakes: refreshedSakes });
+                setAllReports(reports);
+              } catch (error) {
+                console.error('みんなの記録更新エラー:', error);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <RotateCw size={13} />
+            <span>最新データを取り込む</span>
+          </button>
+        </div>
         {loading ? (
           <div className="community-loading"><div className="spinner"></div><p>データを読み込み中...</p></div>
         ) : totalReports === 0 ? (
@@ -1745,8 +1794,8 @@ const SakeApp = () => {
                 return (
                   <div key={sake.sakeId} className={'ranking-card' + (realRank < 3 ? ' medal' : '')} style={realRank < 3 ? {borderLeft:'4px solid '+medalColors[realRank]} : {}} onClick={() => { if(sd){ setSelectedSake(sd); setCurrentScreen('sakeDetail'); } }}>
                     <div className="ranking-pos">{realRank < 3 ? <span style={{fontSize:24}}>{medals[realRank]}</span> : <span className="ranking-num">{rank}</span>}</div>
-                    <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sake.name} /> : <span>🍶</span>}</div>
-                    <div className="ranking-info"><h4>{sake.name}</h4><p>{sake.count}件の評価</p></div>
+                    <div className="ranking-img">{sd?.frontImage ? <img src={sd.frontImage} alt={sd?.name || sake.name} /> : <span>🍶</span>}</div>
+                    <div className="ranking-info"><h4>{sd?.name || sake.name}</h4><p>{sake.count}件の評価</p></div>
                     <div className="ranking-score"><span className="ranking-score-val">{sake.avg.toFixed(1)}</span><span className="ranking-score-unit">点</span></div>
                   </div>
                 );
@@ -1871,9 +1920,9 @@ const SakeApp = () => {
         .event-empty-text{font-size:15px;color:#888;line-height:1.8;margin-bottom:20px;text-align:center}
 .header{display:flex;justify-content:space-between;align-items:center;padding:20px;background:transparent}
 .header h2{font-size:20px;font-weight:500;color:#5a5a5a;letter-spacing:2px;flex:1;text-align:center}
-.header svg{cursor:pointer}
 .header-back-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.header-back-btn:active{background:rgba(44,62,80,0.08)}
+.header-refresh-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;background:#f5efe4;border:1px solid #dcd4c5;border-radius:20px;color:#4a4a4a;font-size:11px;font-weight:500;cursor:pointer;flex-shrink:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent;box-shadow:0 1px 2px rgba(0,0,0,0.05);white-space:nowrap}
+.header-refresh-btn:active{background:#e8dfd0}
 .header-back-spacer{width:44px;height:44px;flex-shrink:0}
 .event-checking{min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
 .event-checking h3{font-size:16px;font-weight:500}
