@@ -805,29 +805,52 @@ const SakeApp = () => {
           return d;
         };
         const data = await callVision(frontImage);
+        let back = null;
         // 都道府県・酒米は裏ラベルに記載が多いため、表＋裏の行テキストをまとめて走査
         let lines = Array.isArray(data.lines) ? [...data.lines] : [];
         if (backImage) {
           try {
-            const back = await callVision(backImage);
+            back = await callVision(backImage);
             if (Array.isArray(back.lines)) lines = [...lines, ...back.lines];
           } catch (e) { /* 裏面の読み取り失敗は無視して続行 */ }
         }
         lines = [...new Set(lines.map(l => (l || '').trim()).filter(Boolean))];
         const validCats = ['純米大吟醸','純米吟醸','特別純米','純米酒','大吟醸','吟醸','特別本醸造','本醸造','普通酒','その他','不明'];
-        // ▼あなたの機能を維持：行テキストから都道府県・酒米を自動検出
+
+        // 銘柄名: 表ラベル優先、なければ裏ラベル
+        const detectedName = (data.name || back?.name || '').trim();
+
+        // 特定名称: 裏ラベルの食品表示が最も正確なため、裏ラベルに明確な記載があれば優先
+        const backCat = back?.category && validCats.includes(back.category) && back.category !== '不明' ? back.category : '';
+        const frontCat = data.category && validCats.includes(data.category) && data.category !== '不明' ? data.category : '';
+        const detectedCategory = backCat || frontCat || (validCats.includes(data.category) ? data.category : (back?.category || ''));
+
+        // 蔵元名: 裏ラベルの食品表示（製造者）が最も正確なため、裏ラベル優先
+        const detectedBrewery = (back?.brewery || data.brewery || '').trim();
+
+        // 都道府県: 蔵元名文字列や行テキスト全体から自動検出
         let detectedPref = '';
-        for (const line of lines) { for (const p of ALL_PREFECTURES) { if (line.includes(p) && !detectedPref) detectedPref = p; } }
+        const textToSearch = [detectedBrewery, ...lines].join(' ');
+        for (const p of ALL_PREFECTURES) {
+          if (textToSearch.includes(p) && !detectedPref) detectedPref = p;
+        }
+
+        // 酒米: 行テキストから自動検出
         let detectedRice = '';
-        for (const line of lines) { for (const r of SAKE_RICE_OPTIONS) { if (line.includes(r) && !detectedRice) detectedRice = r; } }
+        for (const line of lines) {
+          for (const r of SAKE_RICE_OPTIONS) {
+            if (line.includes(r) && !detectedRice) detectedRice = r;
+          }
+        }
+
         setAnalysisResult({
-          name: (data.name || '').trim(),
-          category: validCats.includes(data.category) ? data.category : '',
-          brewery: (data.brewery || '').trim(),
+          name: detectedName,
+          category: detectedCategory,
+          brewery: detectedBrewery,
           prefecture: detectedPref,
           sakeRice: detectedRice,
           lines,
-          source: data.source || '',
+          source: data.source || back?.source || '',
         });
       } catch (error) {
         console.error('ラベル読み取りエラー:', error);
