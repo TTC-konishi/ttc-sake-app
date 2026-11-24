@@ -371,51 +371,41 @@ const SakeApp = () => {
     }
   };
 
-  // ===== お猪口アイコン =====
+  // ===== 利き酒・蛇の目お猪口アイコン =====
   const OchokoIcon = ({ filled = false, size = 32 }) => (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 36 36"
+      viewBox="0 0 40 40"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       style={{ display: 'inline-block', verticalAlign: 'middle', transition: 'transform 0.15s ease' }}
     >
-      {/* お猪口陶器ボディ */}
-      <path
-        d="M7 9 L10 27 C10.5 30 13 32 18 32 C23 32 25.5 30 26 27 L29 9 Z"
-        fill={filled ? '#f0f7ff' : '#ffffff'}
+      {/* お猪口の器（厚み） */}
+      <circle
+        cx="20"
+        cy="20"
+        r="18"
+        fill={filled ? '#eff6ff' : '#ffffff'}
         stroke={filled ? '#1e40af' : '#cbd5e1'}
-        strokeWidth="2"
-        strokeLinejoin="round"
+        strokeWidth="2.5"
       />
-      {/* 注がれた青いお酒 */}
-      {filled && (
+      {filled ? (
         <>
-          <path
-            d="M9.5 15 L10.8 26 C11.2 28.5 13.5 30 18 30 C22.5 30 24.8 28.5 25.2 26 L26.5 15 Z"
-            fill="url(#ochokoBlueGrad)"
-          />
-          <ellipse cx="18" cy="15" rx="8.5" ry="2.2" fill="#60a5fa" />
-          <ellipse cx="18" cy="22.5" rx="4.5" ry="1.8" fill="#1e3a8a" opacity="0.35" />
+          {/* 注がれたお酒 */}
+          <circle cx="20" cy="20" r="15" fill="#3b82f6" fillOpacity="0.35" />
+          {/* 蛇の目の外丸 */}
+          <circle cx="20" cy="20" r="10" stroke="#1d4ed8" strokeWidth="3" fill="none" />
+          {/* 蛇の目の内丸 */}
+          <circle cx="20" cy="20" r="4.5" stroke="#1d4ed8" strokeWidth="2.5" fill="none" />
+        </>
+      ) : (
+        <>
+          <circle cx="20" cy="20" r="15" fill="#f8fafc" />
+          {/* 空の時の底のガイド線 */}
+          <circle cx="20" cy="20" r="9" stroke="#e2e8f0" strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
         </>
       )}
-      {/* お猪口の縁（飲み口） */}
-      <ellipse
-        cx="18"
-        cy="9"
-        rx="11"
-        ry="3"
-        fill={filled ? '#eff6ff' : '#f8fafc'}
-        stroke={filled ? '#1e40af' : '#cbd5e1'}
-        strokeWidth="2"
-      />
-      <defs>
-        <linearGradient id="ochokoBlueGrad" x1="18" y1="15" x2="18" y2="30" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#3b82f6" />
-          <stop offset="1" stopColor="#1d4ed8" />
-        </linearGradient>
-      </defs>
     </svg>
   );
 
@@ -1571,7 +1561,7 @@ const SakeApp = () => {
           <p className="sake-meta">{selectedSake?.category} {selectedSake?.brewery}{selectedSake?.prefecture ? '（' + selectedSake.prefecture + '）' : ''}{selectedSake?.sakeRice ? ' / 🌾' + selectedSake.sakeRice : ''}</p>
           <div className="evaluation-section">
             <h4>味の構成</h4>
-            <p className="section-note">各項目、お猪口をタップして選んでください（注がれると青くなります）。</p>
+            <p className="section-note">各項目、お猪口をタップして選んでください（注がれると青い蛇の目が現れます）。</p>
             <StarRating value={formData.sweetness} maxStars={5} onChange={v => setFormData({...formData, sweetness: v})} label="甘辛度" leftLabel="甘" rightLabel="辛" />
             <StarRating value={formData.aroma} maxStars={5} onChange={v => setFormData({...formData, aroma: v})} label="香りの強さ" leftLabel="穏やか" rightLabel="華やか" />
             <StarRating value={formData.body} maxStars={5} onChange={v => setFormData({...formData, body: v})} label="濃淡" leftLabel="淡麗" rightLabel="濃厚" />
