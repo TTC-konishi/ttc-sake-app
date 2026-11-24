@@ -254,16 +254,25 @@ const SakeApp = () => {
     }
 
     const request = (async () => {
-      let data = null;
-      if (eventNo != null) {
-        const snapshot = await get(query(ref(database, 'sakes'), orderByChild('eventNo'), equalTo(Number(eventNo))));
-        data = snapshot.exists() ? snapshot.val() : null;
+      let rawData = null;
+      if (!force && sakesCacheRef.current.has('all')) {
+        rawData = sakesCacheRef.current.get('all');
       } else {
-        data = await dbGet('sakes');
+        const fetched = await dbGet('sakes');
+        const allList = fetched
+          ? Object.values(fetched).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          : [];
+        sakesCacheRef.current.set('all', allList);
+        rawData = allList;
       }
-      const loadedSakes = data
-        ? Object.values(data).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        : [];
+
+      let loadedSakes = [];
+      if (eventNo != null) {
+        loadedSakes = (rawData || []).filter(s => s && Number(s.eventNo) === Number(eventNo));
+      } else {
+        loadedSakes = rawData || [];
+      }
+
       sakesCacheRef.current.set(nextScope, loadedSakes);
       return loadedSakes;
     })();
@@ -362,7 +371,55 @@ const SakeApp = () => {
     }
   };
 
-  // ===== 星評価コンポーネント =====
+  // ===== お猪口アイコン =====
+  const OchokoIcon = ({ filled = false, size = 32 }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 36 36"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'inline-block', verticalAlign: 'middle', transition: 'transform 0.15s ease' }}
+    >
+      {/* お猪口陶器ボディ */}
+      <path
+        d="M7 9 L10 27 C10.5 30 13 32 18 32 C23 32 25.5 30 26 27 L29 9 Z"
+        fill={filled ? '#f0f7ff' : '#ffffff'}
+        stroke={filled ? '#1e40af' : '#cbd5e1'}
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      {/* 注がれた青いお酒 */}
+      {filled && (
+        <>
+          <path
+            d="M9.5 15 L10.8 26 C11.2 28.5 13.5 30 18 30 C22.5 30 24.8 28.5 25.2 26 L26.5 15 Z"
+            fill="url(#ochokoBlueGrad)"
+          />
+          <ellipse cx="18" cy="15" rx="8.5" ry="2.2" fill="#60a5fa" />
+          <ellipse cx="18" cy="22.5" rx="4.5" ry="1.8" fill="#1e3a8a" opacity="0.35" />
+        </>
+      )}
+      {/* お猪口の縁（飲み口） */}
+      <ellipse
+        cx="18"
+        cy="9"
+        rx="11"
+        ry="3"
+        fill={filled ? '#eff6ff' : '#f8fafc'}
+        stroke={filled ? '#1e40af' : '#cbd5e1'}
+        strokeWidth="2"
+      />
+      <defs>
+        <linearGradient id="ochokoBlueGrad" x1="18" y1="15" x2="18" y2="30" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#3b82f6" />
+          <stop offset="1" stopColor="#1d4ed8" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+
+  // ===== 評価コンポーネント（お猪口） =====
   const StarRating = ({ value, maxStars, onChange, label, leftLabel, rightLabel }) => {
     return (
       <div className="star-rating-group">
@@ -379,10 +436,11 @@ const SakeApp = () => {
             <button
               key={i}
               type="button"
-              className={`star-btn ${i < value ? 'active' : ''}`}
+              className={`ochoko-btn ${i < value ? 'active' : ''}`}
               onClick={() => onChange(i + 1)}
+              aria-label={`${label} ${i + 1}`}
             >
-              ⭐
+              <OchokoIcon filled={i < value} size={36} />
             </button>
           ))}
         </div>
@@ -1414,7 +1472,7 @@ const SakeApp = () => {
                             <span className="eval-label">{e.l}:</span>
                             <div className="eval-stars">
                               {[...Array(e.m)].map((_, i) => (
-                                <span key={i} className={i < e.v ? 'star-filled' : 'star-empty'}>⭐</span>
+                                <OchokoIcon key={i} filled={i < e.v} size={18} />
                               ))}
                             </div>
                             <span className="eval-value">{e.v}/{e.m}</span>
@@ -1424,7 +1482,7 @@ const SakeApp = () => {
                           <span className="eval-label">余韻:</span>
                           <div className="eval-stars">
                             {[...Array(3)].map((_, i) => (
-                              <span key={i} className={i < report.finish ? 'star-filled' : 'star-empty'}>⭐</span>
+                              <OchokoIcon key={i} filled={i < report.finish} size={18} />
                             ))}
                           </div>
                           <span className="eval-value">{getFinishLabel(report.finish)}</span>
@@ -1513,7 +1571,7 @@ const SakeApp = () => {
           <p className="sake-meta">{selectedSake?.category} {selectedSake?.brewery}{selectedSake?.prefecture ? '（' + selectedSake.prefecture + '）' : ''}{selectedSake?.sakeRice ? ' / 🌾' + selectedSake.sakeRice : ''}</p>
           <div className="evaluation-section">
             <h4>味の構成</h4>
-            <p className="section-note">各項目、星をタップして選んでください。</p>
+            <p className="section-note">各項目、お猪口をタップして選んでください（注がれると青くなります）。</p>
             <StarRating value={formData.sweetness} maxStars={5} onChange={v => setFormData({...formData, sweetness: v})} label="甘辛度" leftLabel="甘" rightLabel="辛" />
             <StarRating value={formData.aroma} maxStars={5} onChange={v => setFormData({...formData, aroma: v})} label="香りの強さ" leftLabel="穏やか" rightLabel="華やか" />
             <StarRating value={formData.body} maxStars={5} onChange={v => setFormData({...formData, body: v})} label="濃淡" leftLabel="淡麗" rightLabel="濃厚" />
@@ -1591,9 +1649,11 @@ const SakeApp = () => {
     const loadMyReports = async () => {
       setLoading(true);
       try {
-        const allReports = await loadAllReports();
+        // マイページでは当日の回だけでなく、過去も含めた全評価から自分の投稿を確実に抽出
+        const allReports = await loadAllReports(null, { force: true });
+        const myName = (userName || '').trim();
         const filtered = allReports
-          .filter(r => r && r.userName === userName)
+          .filter(r => r && (r.userName || '').trim() === myName)
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         setMyReports(filtered);
       } catch (error) {
@@ -1653,7 +1713,8 @@ const SakeApp = () => {
             ) : (
               <div className="my-reports-list">
                 {myReports.map((report, i) => {
-                  const currentSakeName = sakes.find(s => s.id === report.sakeId)?.name || report.sakeName;
+                  const allSakesList = sakesCacheRef.current?.get('all') || sakes;
+                  const currentSakeName = allSakesList.find(s => s.id === report.sakeId)?.name || report.sakeName;
                   return (
                   <div key={i} className="my-report-card">
                     <div className="my-report-header">
@@ -2095,6 +2156,11 @@ const SakeApp = () => {
 .star-count{color:#ff9800;font-size:14px;font-weight:600}
 .star-rating-container{display:flex;gap:8px;justify-content:center;margin-top:12px}
 .star-btn{background:none;border:none;font-size:36px;cursor:pointer;padding:4px;filter:grayscale(100%);opacity:0.3;transition:all 0.2s}
+.ochoko-btn{background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:transform 0.15s ease, background 0.15s ease}
+.ochoko-btn:hover{transform:scale(1.12);background:rgba(37,99,235,0.08)}
+.ochoko-btn.active{transform:scale(1.05)}
+.ochoko-btn:active{transform:scale(0.95)}
+.eval-stars{display:flex;align-items:center;gap:4px}
 .star-btn.active{filter:grayscale(0%);opacity:1;transform:scale(1.1)}
 .star-btn:hover{transform:scale(1.15)}
 .submitting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2000}
